@@ -1,0 +1,224 @@
+%% RUN-form v3「星河自律」· 程序调用流程时序图
+%% 共 4 个流程：4.1 仪表盘加载 / 4.2 管理页 CRUD→同步 / 4.3 统计页聚合 / 4.4 钉钉自动提醒
+%% 说明：mermaid 单文件只渲染第一个图，其余三个已用注释块分隔，
+%%       如需单独渲染，把对应块的 %% 注释去掉、其他块注释掉即可。
+
+%% ============================================================
+%% 4.1 首页仪表盘加载（两阶段：本地首屏 → 网络增量刷新）
+%% ============================================================
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant B as 浏览器
+    participant H as index.html
+    participant S as store.js
+    participant C as components.js
+    participant A as app.js
+    participant LS as localStorage
+    participant GP as GitHub Pages<br/>data/reminder-state.json
+
+    U->>B: 访问 /RUN-form/
+    B->>H: 加载 HTML
+    H->>S: script src=store.js
+    H->>C: script src=components.js
+    H->>A: script src=app.js
+    A->>A: init()
+
+    Note over A: 阶段一 · 本地数据首屏（不阻塞网络）
+    A->>C: uiStarfield(body)
+    A->>C: uiNav('home')
+    A->>S: loadPlans()
+    S->>LS: getItem(runform_plans)
+    LS-->>S: raw JSON
+    S-->>A: Plan[]（已补全 icon/color/desc/createdAt）
+    A->>S: getReminderLog()
+    S->>LS: getItem(runform_reminder_cache)
+    LS-->>S: 缓存（可能为空）
+    S-->>A: Map dateKey→Set planId
+    A->>S: overviewStats()
+    S-->>A: planActive/todayDue/streak/rate30/nextUp
+    A->>S: todayPlans()
+    S-->>A: PlanView[]（dueTs/passed/done/next）
+    A->>S: buildHeatmap(84)
+    S-->>A: cells/weeks/max
+    A->>C: uiRing + uiHeatmap + uiTimelineItem
+    C-->>A: SVG / HTML 字符串
+    A->>H: 写入 DOM（概览/下次提醒/时间轴/迷你热力图）
+    A->>C: uiRevealOnLoad + uiCountUp
+    Note over U,H: 首屏可见，无网络等待
+
+    Note over A: 阶段二 · 拉取自动提醒记录后增量刷新
+    A->>S: await loadReminderLog()
+    S->>GP: fetch(同源, cache:'no-store')
+    alt 拉取成功
+        GP-->>S: {"sent": {...}}
+        S->>LS: setItem(runform_reminder_cache)
+        S-->>A: {sent, fromCache:false}
+        A->>A: 重算 overviewStats / buildHeatmap / todayPlans
+        A->>H: 局部重渲染（热力图 / streak / 今日完成态）
+    else 拉取失败（file:// 或 404）
+        S-->>A: {sent: 缓存或空, fromCache:true}
+        A->>H: 显示 offline-chip「离线数据」，不报错
+    end
+
+    Note over A: 秒级时钟
+    loop 每 1 秒
+        A->>S: nextReminder(nextUp.plan)
+        S-->>A: {diffMs, human}
+        A->>H: 刷新倒计时文本与进度环角度
+    end
+
+
+%% ============================================================
+%% 4.2 管理页计划 CRUD → 自动同步
+%% ============================================================
+%% sequenceDiagram
+%%     autonumber
+%%     actor U as 用户
+%%     participant M as manage.html
+%%     participant A2 as app2.js
+%%     participant C as components.js
+%%     participant S as store.js
+%%     participant LS as localStorage
+%%     participant GH as GitHub API /dispatches
+%%     participant WF as sync.yml
+%%
+%%     U->>M: 打开管理页
+%%     A2->>C: uiIconPicker(null) / uiThemePicker('gold')
+%%     C-->>A2: emoji 网格 + 色块 HTML
+%%     A2->>S: loadPlans()
+%%     S-->>A2: Plan[]
+%%     loop 每个计划
+%%         A2->>S: nextReminder(plan) + computeStreak(plan.id)
+%%         S-->>A2: {human} / {current, unit}
+%%         A2->>C: uiPlanCard(planView)
+%%         C-->>A2: 卡片 HTML
+%%     end
+%%     A2->>M: 渲染计划卡片网格
+%%
+%%     U->>M: 填写名称/图标/主题色/说明/频率/时间 → 提交
+%%     M->>A2: submit 事件
+%%     A2->>A2: 校验（名称非空 / time 合法 / monthly day 钳制 1~31）
+%%     alt 新增
+%%         A2->>S: addPlan({name,freq,time,day,enabled,icon,color,desc})
+%%         S->>S: 补 id / createdAt
+%%         S->>LS: setItem(runform_plans)
+%%     else 编辑
+%%         A2->>S: updatePlan(id, patch)
+%%         S->>LS: setItem(runform_plans)
+%%     end
+%%     A2->>S: scheduleAutoSync()
+%%     Note over S: 防抖 800ms，合并连续操作
+%%     S->>S: resolveToken()
+%%     alt 有 token
+%%         S->>GH: POST repository_dispatch (sync-checkins)
+%%         GH-->>S: 204 No Content
+%%         GH->>WF: 触发 sync.yml
+%%         WF->>WF: 全量覆盖写 data/plans.json + data/checkins.json
+%%         WF->>WF: git add 白名单（不含 reminder-state.json）
+%%         WF->>WF: git pull --rebase --autostash → commit → push
+%%     else 无 token
+%%         S-->>A2: 静默跳过（纯本地可用）
+%%     end
+%%     A2->>M: 重渲染卡片 + showToast('已保存')
+
+
+%% ============================================================
+%% 4.3 统计页聚合
+%% ============================================================
+%% sequenceDiagram
+%%     autonumber
+%%     actor U as 用户
+%%     participant ST as stats.html
+%%     participant A3 as app3.js
+%%     participant S as store.js
+%%     participant C as components.js
+%%     participant GP as data/reminder-state.json
+%%
+%%     U->>ST: 访问 stats.html
+%%     A3->>S: await loadReminderLog()
+%%     S->>GP: fetch(同源)
+%%     GP-->>S: {"sent": {...}}
+%%     S-->>A3: 提醒记录
+%%     A3->>S: buildActivityMap({source:'all'})
+%%     S-->>A3: Map date→{count, manual, auto}
+%%     A3->>S: buildHeatmap(371)
+%%     S-->>A3: 53 周 × 7 天网格
+%%     A3->>C: uiHeatmap(data, {showMonths:true, showLegend:true})
+%%     C-->>A3: 年度热力图 SVG
+%%     A3->>S: dailyTrend(30)
+%%     S-->>A3: 30 点序列
+%%     A3->>C: uiSparkline(points)
+%%     C-->>A3: 趋势折线 SVG
+%%     loop 每个计划
+%%         A3->>S: completionRate(plan.id, 30) + computeStreak(plan.id)
+%%         S-->>A3: {done, expected, rate} / {current, best, unit}
+%%         A3->>C: uiRing({percent:rate, theme:themeOf(plan)})
+%%         C-->>A3: 进度环 SVG
+%%     end
+%%     A3->>S: milestones()
+%%     S-->>A3: 徽章解锁状态
+%%     A3->>ST: 渲染全部区块
+%%     A3->>C: uiTooltip + uiRevealOnLoad + uiCountUp
+
+
+%% ============================================================
+%% 4.4 钉钉自动提醒（GitHub Actions，15 分钟窗口 + 幂等去重）
+%% ============================================================
+%% sequenceDiagram
+%%     autonumber
+%%     participant CR as GitHub cron */15 * * * *
+%%     participant WF as dingtalk-reminder.yml
+%%     participant REPO as 仓库文件
+%%     participant PY as Python 脚本
+%%     participant DT as 钉钉机器人
+%%
+%%     CR->>WF: 触发（可能延迟 5~20 分钟）
+%%     WF->>REPO: actions/checkout@v4
+%%     WF->>PY: 执行内联 Python
+%%
+%%     PY->>PY: now = UTC → 北京时间(+08:00)，秒归零
+%%     PY->>PY: win_end = now；win_start = now - 30min
+%%     PY->>PY: candidate_days = {win_start.date(), win_end.date()}
+%%     PY->>REPO: 读 data/plans.json
+%%     REPO-->>PY: Plan[]（失败 → []）
+%%     PY->>REPO: 读 data/reminder-state.json
+%%     REPO-->>PY: {"sent": {...}}（失败 → {"sent":{}}）
+%%
+%%     loop 每个 enabled 计划 × 每个候选日期 d
+%%         PY->>PY: matches_freq(plan, d)?
+%%         PY->>PY: dt = d + plan.time；win_start <= dt <= win_end?
+%%         PY->>PY: key = f"{d}|{plan.id}" 是否已在 sent?
+%%         alt 全部通过
+%%             PY->>PY: due.append((plan, d, dt, key))
+%%         end
+%%     end
+%%
+%%     alt due 为空
+%%         PY-->>WF: 输出 sent_any=false → exit 0（绿色，不提交）
+%%     else 有到期计划
+%%         loop ≤2 个逐条发 / >2 个合并一条
+%%             PY->>PY: 组装 markdown（问候+图标+名称+说明+原定时间+频率+下次提醒+累计触达+梵高语录+链接+@手机号）
+%%             PY->>PY: HMAC-SHA256 签名 → base64 → urlencode
+%%             PY->>DT: POST {webhook}&timestamp=..&sign=..
+%%             DT-->>PY: {"errcode": 0}
+%%             alt errcode == 0
+%%                 PY->>PY: sent[key] = epoch；sent_any = True
+%%             else errcode != 0
+%%                 PY->>PY: 记录失败，不写 key（下轮可重试）
+%%             end
+%%             PY->>PY: sleep(1)（钉钉限流 20 条/分钟）
+%%         end
+%%         PY->>PY: GC 删除 date < today-180d 的键
+%%         PY->>REPO: 写 data/reminder-state.json
+%%     end
+%%
+%%     alt sent_any == true
+%%         WF->>REPO: git add data/reminder-state.json（仅此一个文件）
+%%         WF->>REPO: git pull --rebase --autostash → commit → push（重试 3 次）
+%%     else
+%%         WF->>WF: 跳过提交，避免空 commit
+%%     end
+%%     alt 存在发送失败
+%%         WF-->>CR: exit 1（workflow 变红）
+%%     end

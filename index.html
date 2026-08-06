@@ -3,50 +3,111 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>不按惯例 · 个人打卡</title>
+  <!-- 固定深色主题（Q8）：告诉浏览器表单控件 / 滚动条也走深色 -->
+  <meta name="color-scheme" content="dark" />
+  <title>星河自律 · RUN-form</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="container">
-    <!-- 顶部标题区 -->
+  <main class="container" id="app-root">
+    <!-- 顶部胶囊导航：由 components.js 的 uiNav('home') 注入 -->
+    <div id="nav-slot"></div>
+
+    <!-- 页头：主标题 / 副标题 / 时段问候 / 每日一句（Q10 锁定文案） -->
     <header class="hero">
-      <h1 class="hero-title">不按惯例</h1>
-      <p class="hero-subtitle">今天，你按惯例了吗？</p>
+      <h1 class="hero-title">星河自律</h1>
+      <p class="hero-subtitle">不按惯例 · RUN-form</p>
+      <p class="hero-meta">
+        <span id="greeting">🌌 你好</span> · <span id="today-date">—</span>
+      </p>
+      <p class="hero-quote" id="daily-quote">—</p>
     </header>
 
-    <!-- 今日打卡卡片：选计划 → 一键打卡 → 看今日记录 -->
-    <section class="card" id="today-card">
-      <h2 class="card-title">今日打卡</h2>
+    <!-- 提醒数据降级提示（读不到 data/reminder-state.json 时出现） -->
+    <div class="chip-wrap" id="chip-wrap" hidden>
+      <span class="offline-chip" id="offline-chip"></span>
+    </div>
 
-      <form id="quick-checkin" class="checkin-form">
-        <label for="plan-select" class="field-label">选择计划</label>
-        <select id="plan-select" class="input">
-          <option value="">— 请选择计划 —</option>
-        </select>
-        <button type="submit" class="btn btn-vg-gold" id="quick-checkin-btn">打卡</button>
-      </form>
+    <!-- 主卡：下一个要做的事 + 今日进度环 -->
+    <section class="card next-card theme-gold" id="next-card">
+      <div class="next-ring" id="next-ring"><!-- uiRing 注入 --></div>
 
-      <p class="empty-hint" id="plan-empty" hidden>
-        还没有计划，去管理页添加吧 · <a href="manage.html">去添加计划</a>
+      <div class="next-body" id="next-body">
+        <h2 class="next-name">
+          <span class="next-icon" id="next-icon" aria-hidden="true">🌟</span>
+          <span id="next-name">—</span>
+        </h2>
+        <p class="next-desc" id="next-desc" hidden></p>
+        <p class="next-meta" id="next-meta">—</p>
+        <span class="next-count" id="next-countdown">—</span>
+        <div class="next-actions">
+          <!-- Q1：「标记完成」保留为二级按钮，可在管理页关闭 -->
+          <button type="button" class="btn btn-ghost btn-sm" id="manual-check-btn" hidden>
+            标记完成
+          </button>
+          <a class="btn btn-ghost btn-sm" href="manage.html">管理计划</a>
+        </div>
+      </div>
+
+      <p class="empty-hint" id="next-empty" hidden>
+        <span class="empty-icon" aria-hidden="true">🌙</span>
+        还没有任何计划，去 <a href="manage.html">管理页</a> 点亮第一颗星吧。
       </p>
+    </section>
 
-      <hr class="divider" />
+    <!-- 关键指标四宫格 -->
+    <section class="card">
+      <div class="card-head">
+        <h2 class="card-title">🌠 概览</h2>
+        <a class="mini-btn" href="stats.html">更多统计</a>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-tile theme-blue">
+          <span class="stat-value" id="stat-active">0</span>
+          <span class="stat-label">启用计划</span>
+        </div>
+        <div class="stat-tile theme-teal">
+          <span class="stat-value" id="stat-today">0</span>
+          <span class="stat-label">今日完成</span>
+        </div>
+        <div class="stat-tile theme-gold">
+          <span class="stat-value" id="stat-streak">0</span>
+          <span class="stat-label">连续天数</span>
+        </div>
+        <div class="stat-tile theme-violet">
+          <span class="stat-value" id="stat-rate">0%</span>
+          <span class="stat-label">30 天完成率</span>
+        </div>
+      </div>
+    </section>
 
-      <h3 class="card-subtitle">今日记录</h3>
-      <div id="today-list"><!-- 由 app.js 动态渲染 --></div>
-      <p class="empty-hint" id="today-empty" hidden>今天还没有打卡记录。</p>
+    <!-- 今日时间轴 -->
+    <section class="card">
+      <h2 class="card-title">🕰 今日时间轴</h2>
+      <ul class="timeline" id="timeline"><!-- uiTimelineItem 注入 --></ul>
+      <div id="timeline-empty" hidden><!-- uiEmpty 注入 --></div>
+    </section>
+
+    <!-- 近 12 周星图 -->
+    <section class="card">
+      <div class="card-head">
+        <h2 class="card-title">✨ 近 12 周星图</h2>
+        <a class="mini-btn" href="stats.html">查看全年</a>
+      </div>
+      <div id="mini-heatmap"><!-- uiHeatmap 注入 --></div>
     </section>
 
     <footer class="footer">
-      <a id="manage-btn" class="btn btn-vg-blue" href="manage.html">管理</a>
-      <p>不按惯例 · RUN-form · 数据存于本地浏览器</p>
+      <p>星河自律 · RUN-form · 数据存于本地浏览器</p>
     </footer>
   </main>
 
   <!-- 全局 toast 提示容器 -->
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+  <!-- ⚠️ 加载顺序固定：store.js → components.js → app.js -->
   <script src="store.js"></script>
+  <script src="components.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

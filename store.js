@@ -1,30 +1,51 @@
 /**
- * 不按惯例 · 打卡站点 —— 共享数据层 / 同步层（store.js）
+ * 星河自律 · RUN-form v3 —— 共享数据层 / 计算层 / 同步层（store.js）
  *
- * 首页（index.html + app.js）与管理页（manage.html + app2.js）共用本文件，
- * 必须在各自页面脚本【之前】加载。
+ * 三个页面（index.html + app.js / manage.html + app2.js / stats.html + app3.js）共用本文件，
+ * 加载顺序固定为：store.js → components.js → appN.js。
  *
- * 设计约束：
+ * 设计约束（v2 沿用，不可违背）：
  * - 纯全局函数，不使用任何模块系统（无 import/export），直接挂在全局作用域；
- * - 所有数据存于浏览器 localStorage，无后端；
+ * - 业务数据存于浏览器 localStorage，无后端；
  * - Token 只存本机 localStorage，只通过 Authorization 头发给 GitHub；
  * - 本文件负责定义 showToast / formatTime / genId / escapeHtml，
  *   页面脚本只能【使用】它们，绝不能重复声明（否则会 "already declared" 报错）。
+ *
+ * ⚠️ 三条最容易写错的约定（v3 强化）：
+ * 1. weekday 双体系：plan.day 永远是 Python 口径（周一=0, 周日=6）。
+ *    JS 侧比较必须换算：jsDow = (plan.day + 1) % 7，再与 date.getDay() 比较。
+ * 2. 本文件【禁止】声明 `const $`（那是页面脚本的名字，重复声明会白屏）。
+ * 3. 任何进 innerHTML 的用户数据必须先过 escapeHtml()。
+ *
+ * ⚠️ 数据流单向性：
+ *    localStorage ──写──> data/plans.json / data/checkins.json （经 sync.yml）
+ *    data/reminder-state.json ──只读──> 前端渲染
+ *    前端【永不写】reminder-state.json。
  */
 
-// ============================ 常量 ============================
+// ============================ 常量：存储键与端点 ============================
 
-/** 计划列表在 localStorage 中的键名 */
+/** 计划列表在 localStorage 中的键名（v2 沿用，不可改） */
 const PLAN_KEY = "runform_plans";
-/** 打卡台账在 localStorage 中的键名（沿用 v1，保证老数据不丢） */
+/** 打卡台账在 localStorage 中的键名（沿用 v1/v2，保证老数据不丢） */
 const CHECKIN_KEY = "runform_checkins";
-/** Personal Access Token 在 localStorage 中的键名 */
+/** Personal Access Token 在 localStorage 中的键名（v2 沿用，不可改） */
 const TOKEN_KEY = "runform_pat";
+/** UI 偏好设置在 localStorage 中的键名（v3 新增） */
+const PREFS_KEY = "runform_prefs";
+/** 提醒状态的本地缓存键（fetch 失败时降级读它，v3 新增） */
+const REMINDER_CACHE_KEY = "runform_reminder_cache";
+/** 提醒状态文件的【同源相对路径】——前端只读，绝不写 */
+const REMINDER_STATE_URL = "data/reminder-state.json";
 /** GitHub repository_dispatch 接口地址 */
 const REPO_DISPATCH_URL =
   "https://api.github.com/repos/chenliguan42057/RUN-form/dispatches";
 /** 自动同步防抖窗口（毫秒）：连续操作只在最后一次后统一同步 */
 const AUTO_SYNC_DELAY = 800;
+/** 一天的毫秒数 */
+const DAY_MS = 86400000;
+
+// ============================ 常量：文案与色板 ============================
 
 /** 频率中文标签映射 */
 const FREQ_LABELS = {
@@ -36,14 +57,102 @@ const FREQ_LABELS = {
 /** 星期中文标签（索引 = 周一为 0 的星期号，与 Python datetime.weekday() 一致） */
 const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
+/**
+ * 主题色板：key → 渐变与光晕。与 styles.css 的 .theme-<key> 一一对应。
+ * glow 存的是 "R,G,B" 裸值，方便在 CSS 里写 rgba(var(--t-glow), .5)。
+ */
+const COLOR_THEMES = {
+  gold: { label: "麦田金", from: "#f2c14e", to: "#e0a82e", glow: "242,193,78" },
+  blue: { label: "星夜蓝", from: "#4a86d8", to: "#1b3a6b", glow: "74,134,216" },
+  teal: { label: "海潮青", from: "#2a9d8f", to: "#1d6f74", glow: "42,157,143" },
+  violet: { label: "暮夜紫", from: "#8b7ae8", to: "#4b3f9e", glow: "139,122,232" },
+  rose: { label: "杏花粉", from: "#e58ba6", to: "#a13b5e", glow: "229,139,166" },
+  amber: { label: "落日橙", from: "#f0954a", to: "#b4551a", glow: "240,149,74" },
+};
+
+/** 主题色 key 列表，用于按 id 哈希稳定派生配色 */
+const COLOR_KEYS = Object.keys(COLOR_THEMES);
+
+/**
+ * emoji 图标预设（管理页选择器用，32 个，4 组 × 8）。
+ * ⚠️ 与 .github/workflows/dingtalk-reminder.yml 无关（那边不用图标预设），
+ *    但与 components.js 的 uiIconPicker 共用，改动只需改这里。
+ */
+const ICON_PRESETS = [
+  "🏃", "🚶", "🏋️", "🧘", "🚴", "🏊", "⛹️", "🤸", // 运动
+  "📖", "✍️", "💻", "🎨", "🎹", "🎸", "🧠", "🌱", // 学习创作
+  "💧", "🍎", "🥗", "💊", "😴", "☕", "🦷", "🧴", // 健康
+  "🧹", "🧺", "💰", "📞", "🐕", "⏰", "🎯", "🌙", // 生活
+];
+
+/**
+ * 梵高书信风格鼓励语（仪表盘与钉钉消息共用）。
+ * ⚠️ 与 .github/workflows/dingtalk-reminder.yml 里的 QUOTES 保持一致，改动必须两边同步。
+ */
+const VAN_GOGH_QUOTES = [
+  "我梦见我的画，然后我画我的梦。",
+  "伟大的事，由一系列小事汇聚而成。",
+  "如果心里有个声音说「你做不到」，那就去做，那个声音自会沉默。",
+  "我总在追寻，却从不到达；我总在跋涉，却从不停息。",
+  "星星让我做梦。",
+  "我宁愿死于热情，也不愿死于无聊。",
+  "普通的日子里，也藏着值得画下来的光。",
+  "别灰心，明天太阳照常升起，而我们照常出发。",
+  "去爱尽可能多的事物，真正的力量就藏在那里。",
+  "我心中有一团火，路过的人只看到烟。",
+  "画家不该被画布上的空白吓倒。",
+  "只要还在走，路就没有尽头。",
+];
+
+/** 热力图分档阈值：count >= 阈值 即进入该档（从高到低匹配）→ level 0/1/2/3/4 */
+const HEATMAP_LEVELS = [0, 1, 2, 4, 6];
+
+/** 里程碑徽章定义（统计页用） */
+const MILESTONES = [
+  { days: 7, icon: "🌱", name: "破土", desc: "连续 7 天" },
+  { days: 21, icon: "🌿", name: "成习", desc: "连续 21 天" },
+  { days: 30, icon: "🌻", name: "向日葵", desc: "连续 30 天" },
+  { days: 100, icon: "🌌", name: "星河", desc: "连续 100 天" },
+  { days: 365, icon: "👑", name: "岁轮", desc: "连续 365 天" },
+];
+
+/**
+ * 时段问候（仪表盘与钉钉消息共用），按本地时间小时取。
+ * from > to 表示跨零点区间（22:00 ~ 次日 04:59）。
+ */
+const GREETINGS = [
+  { from: 5, to: 8, emoji: "🌅", text: "早安" },
+  { from: 9, to: 11, emoji: "☀️", text: "上午好" },
+  { from: 12, to: 13, emoji: "🌻", text: "午安" },
+  { from: 14, to: 17, emoji: "🌤", text: "下午好" },
+  { from: 18, to: 21, emoji: "🌌", text: "晚上好" },
+  { from: 22, to: 4, emoji: "🌙", text: "夜深了" },
+];
+
+/** UI 偏好默认值 */
+const DEFAULT_PREFS = {
+  /** 是否显示「标记完成」二级按钮（Q1：默认显示，管理页可关） */
+  showManualCheckin: true,
+  /** 热力图数据源：'all' 叠加 | 'auto' 仅提醒送达 | 'manual' 仅手动完成 */
+  heatmapSource: "all",
+  /** 手动关闭动效（等同系统的 prefers-reduced-motion: reduce） */
+  reduceMotion: false,
+};
+
 // ============================ 内部状态 ============================
 
 /** toast 自动隐藏定时器句柄 */
 let toastTimer = null;
 /** 自动同步防抖定时器句柄 */
 let autoSyncTimer = null;
+/** 提醒状态原始对象：{ "YYYY-MM-DD|planId": epochSeconds } */
+let reminderSentRaw = {};
+/** 提醒状态倒排索引：dateKey → Set<planId> */
+let reminderLogMap = new Map();
+/** 提醒状态元信息 */
+let reminderMeta = { loaded: false, fromCache: false, fetchedAt: 0 };
 
-// ============================ 基础工具 ============================
+// ============================ 基础工具（v2 签名不变） ============================
 
 /**
  * 生成唯一 id：优先 crypto.randomUUID（安全上下文），否则时间戳 + 随机串兜底。
@@ -104,20 +213,255 @@ function showToast(message, type = "info") {
   }, 3000);
 }
 
+/**
+ * 安全写 localStorage：隐私模式 / 配额满时不抛错，只提示，页面仍可只读浏览。
+ * @param {string} key 键名
+ * @param {string} value 值（已序列化）
+ * @returns {boolean} 是否写入成功
+ */
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    console.error("写入本地存储失败：", e);
+    showToast("浏览器存储不可用，本次改动未能保存", "error");
+    return false;
+  }
+}
+
+/**
+ * 安全读 localStorage：任何异常都返回 null，不让页面崩掉。
+ * @param {string} key 键名
+ * @returns {string|null}
+ */
+function safeGetItem(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    console.error("读取本地存储失败：", e);
+    return null;
+  }
+}
+
+// ============================ v3 工具函数 ============================
+
+/**
+ * 简易 DJB2 哈希，返回非负整数。用于按 id 稳定派生主题色。
+ * 同一个 id 每次调用结果恒定，老计划因此获得固定不跳变的配色。
+ * @param {string} str 输入字符串
+ * @returns {number} 非负整数
+ */
+function hashString(str) {
+  const s = String(str == null ? "" : str);
+  let hash = 5381;
+  for (let i = 0; i < s.length; i++) {
+    // hash * 33 + charCode，用 |0 保持 32 位整数运算
+    hash = ((hash << 5) + hash + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * 归一到当天 00:00:00.000（本地时区）。
+ * 支持 Date / 毫秒时间戳 / 'YYYY-MM-DD' 字符串三种输入。
+ * ⚠️ 'YYYY-MM-DD' 必须手工解析：new Date('2026-08-06') 会被当成 UTC，导致时区偏移一天。
+ * @param {Date|number|string} [input] 输入，缺省为当前时间
+ * @returns {Date} 当天零点的 Date 对象
+ */
+function startOfDay(input) {
+  let d;
+  if (input instanceof Date) {
+    d = new Date(input.getTime());
+  } else if (typeof input === "number" && Number.isFinite(input)) {
+    d = new Date(input);
+  } else if (typeof input === "string") {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(input);
+    d = m
+      ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+      : new Date(input);
+  } else {
+    d = new Date();
+  }
+  if (isNaN(d.getTime())) d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * 任意 Date / 时间戳 / 日期串 → 本地时区 'YYYY-MM-DD'。
+ * 全站日期归一化的唯一入口，热力图 / streak / 完成率都靠它对齐。
+ * @param {Date|number|string} [input] 输入，缺省为今天
+ * @returns {string} 'YYYY-MM-DD'
+ */
+function dateKey(input) {
+  const d = startOfDay(input);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * 解析 'HH:MM' 时间串。
+ * @param {string} time 形如 '07:30'
+ * @returns {{h:number, m:number}} 非法输入兜底 {h:8, m:0}
+ */
+function parseHHMM(time) {
+  const m = /^(\d{1,2}):(\d{1,2})$/.exec(String(time || "").trim());
+  if (!m) return { h: 8, m: 0 };
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) {
+    return { h: 8, m: 0 };
+  }
+  return { h, m: min };
+}
+
+/**
+ * 两个日期相差的整天数（按 startOfDay 计，b - a）。
+ * @param {Date|number|string} a 起始日期
+ * @param {Date|number|string} b 结束日期
+ * @returns {number} 整天数，b 早于 a 时为负
+ */
+function daysBetween(a, b) {
+  const t1 = startOfDay(a).getTime();
+  const t2 = startOfDay(b).getTime();
+  return Math.round((t2 - t1) / DAY_MS);
+}
+
+/**
+ * 取某个 Date 的「Python 口径星期号」：周一 = 0，周日 = 6。
+ * ⚠️ JS 原生 getDay() 是周日 = 0，两者差一位，务必用本函数或 (plan.day + 1) % 7 换算。
+ * @param {Date|number|string} input 日期
+ * @returns {number} 0~6
+ */
+function pyWeekday(input) {
+  return (startOfDay(input).getDay() + 6) % 7;
+}
+
+/**
+ * 取计划的主题配色。plan.color 非法时按 hashString(plan.id) 稳定派生。
+ * ⚠️ 这是唯一取色入口，页面脚本禁止直接读 plan.color。
+ * @param {Object} plan 计划对象
+ * @returns {{key:string, label:string, from:string, to:string, glow:string}}
+ */
+function themeOf(plan) {
+  const p = plan || {};
+  let key = typeof p.color === "string" ? p.color : "";
+  if (!Object.prototype.hasOwnProperty.call(COLOR_THEMES, key)) {
+    key = COLOR_KEYS[hashString(p.id || p.name || "") % COLOR_KEYS.length];
+  }
+  const theme = COLOR_THEMES[key];
+  return { key, label: theme.label, from: theme.from, to: theme.to, glow: theme.glow };
+}
+
+/**
+ * 按小时返回时段问候。
+ * @param {Date} [date] 参考时间，缺省为现在
+ * @returns {{emoji:string, text:string}}
+ */
+function greetingNow(date) {
+  const d = date instanceof Date ? date : new Date();
+  const hour = d.getHours();
+  for (const g of GREETINGS) {
+    if (g.from <= g.to) {
+      if (hour >= g.from && hour <= g.to) return { emoji: g.emoji, text: g.text };
+    } else if (hour >= g.from || hour <= g.to) {
+      // 跨零点区间，例如 22 ~ 4
+      return { emoji: g.emoji, text: g.text };
+    }
+  }
+  return { emoji: "🌙", text: "夜深了" };
+}
+
+/**
+ * 从 VAN_GOGH_QUOTES 取一条语录。
+ * @param {string} [seed] 传入 seed（如 dateKey()）时当天恒定；不传则真随机
+ * @returns {string} 语录文本
+ */
+function randomQuote(seed) {
+  if (seed === undefined || seed === null || seed === "") {
+    return VAN_GOGH_QUOTES[Math.floor(Math.random() * VAN_GOGH_QUOTES.length)];
+  }
+  return VAN_GOGH_QUOTES[hashString(seed) % VAN_GOGH_QUOTES.length];
+}
+
+/**
+ * 把毫秒差格式化成人类可读的倒计时。
+ * @param {number} ms 毫秒差
+ * @returns {string} "3 小时 12 分" / "18 分钟" / "已到时间"
+ */
+function formatCountdown(ms) {
+  const v = Number(ms);
+  if (!Number.isFinite(v) || v <= 0) return "已到时间";
+  const totalMin = Math.floor(v / 60000);
+  if (totalMin < 1) return "不到 1 分钟";
+  if (totalMin < 60) return `${totalMin} 分钟`;
+  const totalHour = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  if (totalHour < 24) {
+    return min > 0 ? `${totalHour} 小时 ${min} 分` : `${totalHour} 小时`;
+  }
+  const days = Math.floor(totalHour / 24);
+  const hour = totalHour % 24;
+  return hour > 0 ? `${days} 天 ${hour} 小时` : `${days} 天`;
+}
+
+// ============================ 偏好设置（v3） ============================
+
+/**
+ * 读取 UI 偏好，缺失字段用 DEFAULT_PREFS 补全。
+ * @returns {{showManualCheckin:boolean, heatmapSource:string, reduceMotion:boolean}}
+ */
+function loadPrefs() {
+  let raw = null;
+  try {
+    const text = safeGetItem(PREFS_KEY);
+    raw = text ? JSON.parse(text) : null;
+  } catch (e) {
+    console.error("读取偏好失败，已回退默认值：", e);
+    raw = null;
+  }
+  const src = raw && typeof raw === "object" ? raw : {};
+  const source = ["all", "auto", "manual"].indexOf(src.heatmapSource) >= 0
+    ? src.heatmapSource
+    : DEFAULT_PREFS.heatmapSource;
+  return {
+    showManualCheckin:
+      src.showManualCheckin === undefined
+        ? DEFAULT_PREFS.showManualCheckin
+        : src.showManualCheckin !== false,
+    heatmapSource: source,
+    reduceMotion: src.reduceMotion === true,
+  };
+}
+
+/**
+ * 合并写入 UI 偏好（浅合并 patch）。
+ * @param {Object} patch 要合并的字段
+ * @returns {Object} 合并后的完整偏好
+ */
+function savePrefs(patch) {
+  const next = Object.assign({}, loadPrefs(), patch && typeof patch === "object" ? patch : {});
+  safeSetItem(PREFS_KEY, JSON.stringify(next));
+  return next;
+}
+
 // ============================ 计划（Plan）数据层 ============================
 
 /**
- * 读取计划列表，并对旧数据做字段补全（迁移）。
- * 计划模型：{id, name, freq:'daily'|'weekly'|'monthly', time:'HH:MM', day:Number, enabled:Boolean}
- * - weekly：day = 星期号 0~6（周一 = 0）
+ * 读取计划列表，并对旧数据做字段补全（读时迁移，不改写 localStorage）。
+ * 计划模型（v3）：
+ *   {id, name, freq:'daily'|'weekly'|'monthly', time:'HH:MM', day, enabled,   ← v2 六字段
+ *    icon, color, desc, createdAt}                                           ← v3 新增
+ * - weekly：day = 星期号 0~6（周一 = 0，Python 口径）
  * - monthly：day = 每月第几日 1~31
  * - daily：day 忽略
- * @returns {Array<{id:string,name:string,freq:string,time:string,day:number,enabled:boolean}>}
+ * @returns {Array<Object>} 计划数组
  */
 function loadPlans() {
   let data = [];
   try {
-    const raw = localStorage.getItem(PLAN_KEY);
+    const raw = safeGetItem(PLAN_KEY);
     data = raw ? JSON.parse(raw) : [];
   } catch (e) {
     console.error("读取计划失败，已重置：", e);
@@ -127,7 +471,7 @@ function loadPlans() {
 
   return data
     .filter((item) => item && typeof item === "object")
-    .map((item) => {
+    .map((item, index) => {
       const freq =
         item.freq === "weekly" || item.freq === "monthly" ? item.freq : "daily";
       // day 缺省值随频率而定：每周默认周一(0)，每月默认 1 日，每日不关心
@@ -135,14 +479,22 @@ function loadPlans() {
       if (!Number.isFinite(day)) {
         day = freq === "monthly" ? 1 : 0;
       }
-      return {
-        id: item.id || genId(),
-        name: typeof item.name === "string" && item.name ? item.name : "未命名",
-        freq,
-        time: typeof item.time === "string" && item.time ? item.time : "08:00",
-        day,
-        enabled: item.enabled !== false,
-      };
+      const id = item.id || genId();
+
+      // ---- v3 新增字段的读时补全 ----
+      const icon =
+        typeof item.icon === "string" && item.icon.trim() ? item.icon.trim() : "🌟";
+      const color = Object.prototype.hasOwnProperty.call(COLOR_THEMES, item.color)
+        ? item.color
+        : COLOR_KEYS[hashString(id) % COLOR_KEYS.length];
+      const desc = typeof item.desc === "string" ? item.desc : "";
+      let createdAt = Number(item.createdAt);
+      if (!Number.isFinite(createdAt) || createdAt <= 0) {
+        // 老计划没有创建时间：按数组顺序反推一个稳定的伪时间（越靠前越早）
+        createdAt = Date.now() - (data.length - index) * DAY_MS;
+      }
+
+      return { id, name: typeof item.name === "string" && item.name ? item.name : "未命名", freq, time: typeof item.time === "string" && item.time ? item.time : "08:00", day, enabled: item.enabled !== false, icon, color, desc, createdAt };
     });
 }
 
@@ -152,23 +504,31 @@ function loadPlans() {
  * @returns {void}
  */
 function savePlans(list) {
-  localStorage.setItem(PLAN_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+  safeSetItem(PLAN_KEY, JSON.stringify(Array.isArray(list) ? list : []));
 }
 
 /**
- * 新增一个计划。
- * @param {{name:string, freq:string, time:string, day:number, enabled:boolean}} plan 计划字段
+ * 新增一个计划。v3 扩展了 icon / color / desc / createdAt，调用方式与 v2 完全兼容。
+ * @param {Object} fields 计划字段 {name, freq, time, day, enabled, icon, color, desc}
  * @returns {Object} 新建的完整计划对象（含 id）
  */
-function addPlan({ name, freq, time, day, enabled }) {
+function addPlan(fields) {
+  const f = fields && typeof fields === "object" ? fields : {};
   const list = loadPlans();
+  const id = genId();
   const item = {
-    id: genId(),
-    name: name || "未命名",
-    freq: freq === "weekly" || freq === "monthly" ? freq : "daily",
-    time: time || "08:00",
-    day: Number.isFinite(Number(day)) ? Number(day) : 0,
-    enabled: enabled !== false,
+    id,
+    name: f.name || "未命名",
+    freq: f.freq === "weekly" || f.freq === "monthly" ? f.freq : "daily",
+    time: f.time || "08:00",
+    day: Number.isFinite(Number(f.day)) ? Number(f.day) : 0,
+    enabled: f.enabled !== false,
+    icon: typeof f.icon === "string" && f.icon.trim() ? f.icon.trim() : "🌟",
+    color: Object.prototype.hasOwnProperty.call(COLOR_THEMES, f.color)
+      ? f.color
+      : COLOR_KEYS[hashString(id) % COLOR_KEYS.length],
+    desc: typeof f.desc === "string" ? f.desc : "",
+    createdAt: Date.now(),
   };
   list.push(item);
   savePlans(list);
@@ -182,7 +542,7 @@ function addPlan({ name, freq, time, day, enabled }) {
  * @returns {void}
  */
 function updatePlan(id, patch) {
-  const list = loadPlans().map((p) => (p.id === id ? { ...p, ...patch } : p));
+  const list = loadPlans().map((p) => (p.id === id ? Object.assign({}, p, patch) : p));
   savePlans(list);
 }
 
@@ -202,9 +562,29 @@ function deletePlan(id) {
  */
 function togglePlan(id) {
   const list = loadPlans().map((p) =>
-    p.id === id ? { ...p, enabled: !p.enabled } : p
+    p.id === id ? Object.assign({}, p, { enabled: !p.enabled }) : p
   );
   savePlans(list);
+}
+
+/**
+ * 生成计划的频率 + 时间 + 日期的中文描述，用于列表展示。
+ * ⚠️ v2 签名与输出格式不变。
+ * @param {{freq:string, time:string, day:number}} plan 计划对象
+ * @returns {string} 形如 "每周 · 周三 · 08:00"
+ */
+function describePlan(plan) {
+  const parts = [];
+  if (plan.freq === "weekly") {
+    parts.push("每周", WEEKDAY_LABELS[Number(plan.day)] || "周一");
+  } else if (plan.freq === "monthly") {
+    // 「每月」已含在日期描述里，避免出现「每月 · 每月28日」这种重复
+    parts.push(`每月${Number(plan.day) || 1}日`);
+  } else {
+    parts.push(FREQ_LABELS[plan.freq] || "每日");
+  }
+  parts.push(plan.time || "08:00");
+  return parts.join(" · ");
 }
 
 // ============================ 台账（Checkin）数据层 ============================
@@ -213,18 +593,27 @@ function togglePlan(id) {
  * 读取打卡台账，并迁移 v1 旧记录。
  * v1 记录形如 {id, ts, content}（没有 planId / planName），
  * 迁移策略：planId = null，planName = content || "历史记录"，note = ""。
- * @returns {Array<{id:string, planId:(string|null), planName:string, ts:number, note:string}>}
+ * v3 新增：planIcon（快照，计划删掉后台账仍有图标）、source（'manual' | 'auto'）。
+ * @returns {Array<Object>} 台账数组
  */
 function loadCheckins() {
   let data = [];
   try {
-    const raw = localStorage.getItem(CHECKIN_KEY);
+    const raw = safeGetItem(CHECKIN_KEY);
     data = raw ? JSON.parse(raw) : [];
   } catch (e) {
     console.error("读取台账失败，已重置：", e);
     data = [];
   }
   if (!Array.isArray(data)) return [];
+
+  // 为补全 planIcon 做一次计划索引（按 planId 反查现存计划的图标）
+  const iconById = new Map();
+  try {
+    loadPlans().forEach((p) => iconById.set(p.id, p.icon));
+  } catch (e) {
+    console.error("构建计划图标索引失败：", e);
+  }
 
   return data
     .filter((item) => item && typeof item === "object")
@@ -234,12 +623,19 @@ function loadCheckins() {
         typeof item.planName === "string" && item.planName
           ? item.planName
           : (typeof item.content === "string" && item.content) || "历史记录";
+      const planId = item.planId || null;
+      const planIcon =
+        typeof item.planIcon === "string" && item.planIcon
+          ? item.planIcon
+          : iconById.get(planId) || "✅";
       return {
         id: item.id || genId(),
-        planId: item.planId || null,
+        planId,
         planName,
         ts: Number(item.ts) || Date.now(),
         note: typeof item.note === "string" ? item.note : "",
+        planIcon,
+        source: item.source === "auto" ? "auto" : "manual",
       };
     });
 }
@@ -250,26 +646,27 @@ function loadCheckins() {
  * @returns {void}
  */
 function saveCheckins(list) {
-  localStorage.setItem(
-    CHECKIN_KEY,
-    JSON.stringify(Array.isArray(list) ? list : [])
-  );
+  safeSetItem(CHECKIN_KEY, JSON.stringify(Array.isArray(list) ? list : []));
 }
 
 /**
  * 新增一条打卡记录（内容即计划名，不再有自由文本备注）。
+ * v3 会顺带记录计划图标快照与来源，调用方式与 v2 完全兼容。
  * @param {string|null} planId 关联的计划 id
  * @param {string} planName 计划名称（作为打卡内容展示）
  * @returns {Object} 新建的记录
  */
 function addCheckin(planId, planName) {
   const list = loadCheckins();
+  const plan = planId ? loadPlans().find((p) => p.id === planId) : null;
   const item = {
     id: genId(),
     planId: planId || null,
-    planName: planName || "未命名",
+    planName: planName || (plan && plan.name) || "未命名",
     ts: Date.now(),
     note: "",
+    planIcon: (plan && plan.icon) || "✅",
+    source: "manual",
   };
   list.push(item);
   saveCheckins(list);
@@ -290,14 +687,730 @@ function deleteCheckin(id) {
  * @returns {void}
  */
 function clearAll() {
-  localStorage.removeItem(CHECKIN_KEY);
+  try {
+    localStorage.removeItem(CHECKIN_KEY);
+  } catch (e) {
+    console.error("清空台账失败：", e);
+    showToast("浏览器存储不可用，清空失败", "error");
+  }
 }
 
-// ============================ 同步到 GitHub ============================
+// ============================ v3 计划调度计算 ============================
+
+/**
+ * 判断某个计划在给定日期是否「应当触发」。
+ * 规则：daily 恒真；weekly 需星期匹配；monthly 需日期匹配（短月兜底到当月最后一天）。
+ * plan.enabled === false 时恒假。
+ * @param {Object} plan 计划对象
+ * @param {Date|string|number} date 日期
+ * @returns {boolean}
+ */
+function isPlanDueOn(plan, date) {
+  if (!plan || plan.enabled === false) return false;
+  const d = startOfDay(date);
+  const freq = plan.freq === "weekly" || plan.freq === "monthly" ? plan.freq : "daily";
+
+  if (freq === "daily") return true;
+
+  if (freq === "weekly") {
+    // ⚠️ weekday 双体系：plan.day 是 Python 口径（周一=0），
+    //    JS 的 getDay() 是周日=0 → 换算 jsDow = (plan.day + 1) % 7
+    const jsDow = ((Number(plan.day) || 0) + 1) % 7;
+    return d.getDay() === jsDow;
+  }
+
+  // monthly：短月兜底。2 月的「31 日」按当月最后一天判定，避免静默漏推
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const wanted = Math.min(Math.max(Number(plan.day) || 1, 1), lastDay);
+  return d.getDate() === wanted;
+}
+
+/**
+ * 计算某计划从 fromTs 起的下一次提醒时刻。
+ * 搜索范围与 Python 侧完全一致：daily 看 2 天 / weekly 看 8 天 / monthly 看 13 个月。
+ * @param {Object} plan 计划对象
+ * @param {number} [fromTs=Date.now()] 起算时间戳
+ * @returns {{ts:number, dateKey:string, human:string, diffMs:number, isToday:boolean}|null}
+ *          plan.enabled === false 或找不到时返回 null
+ */
+function nextReminder(plan, fromTs) {
+  if (!plan || plan.enabled === false) return null;
+  const from = Number.isFinite(Number(fromTs)) ? Number(fromTs) : Date.now();
+  const hm = parseHHMM(plan.time);
+  const base = startOfDay(from);
+  const freq = plan.freq === "weekly" || plan.freq === "monthly" ? plan.freq : "daily";
+
+  /**
+   * 组装返回值。
+   * @param {Date} target 目标时刻
+   * @returns {Object}
+   */
+  const build = (target) => {
+    const ts = target.getTime();
+    const diffDays = daysBetween(from, target);
+    const pad = (n) => String(n).padStart(2, "0");
+    const hhmm = `${pad(target.getHours())}:${pad(target.getMinutes())}`;
+    let human;
+    if (diffDays <= 0) {
+      human = `今天 ${hhmm}`;
+    } else if (diffDays === 1) {
+      human = `明天 ${hhmm}`;
+    } else if (diffDays < 7) {
+      human = `${WEEKDAY_LABELS[pyWeekday(target)]} ${hhmm}（${diffDays} 天后）`;
+    } else {
+      human = `${target.getMonth() + 1} 月 ${target.getDate()} 日 ${hhmm}`;
+    }
+    return {
+      ts,
+      dateKey: dateKey(target),
+      human,
+      diffMs: ts - from,
+      isToday: diffDays <= 0,
+    };
+  };
+
+  if (freq === "monthly") {
+    for (let k = 0; k <= 12; k++) {
+      const y = base.getFullYear();
+      const mo = base.getMonth() + k;
+      const lastDay = new Date(y, mo + 1, 0).getDate();
+      const dd = Math.min(Math.max(Number(plan.day) || 1, 1), lastDay);
+      const target = new Date(y, mo, dd, hm.h, hm.m, 0, 0);
+      if (target.getTime() > from) return build(target);
+    }
+    return null;
+  }
+
+  const span = freq === "weekly" ? 8 : 2;
+  for (let i = 0; i < span; i++) {
+    const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+    if (!isPlanDueOn(plan, day)) continue;
+    const target = new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate(),
+      hm.h,
+      hm.m,
+      0,
+      0
+    );
+    if (target.getTime() > from) return build(target);
+  }
+  return null;
+}
+
+/**
+ * 列出某计划在 [fromTs, toTs] 区间内所有「应当触发」的日期。
+ * 用作完成率的分母、streak 的回溯序列。
+ * ⚠️ 依赖 isPlanDueOn，因此 enabled === false 的计划返回空数组（停用即不计入统计）。
+ * @param {Object} plan 计划对象
+ * @param {number} fromTs 起始时间戳
+ * @param {number} toTs 结束时间戳
+ * @returns {string[]} 升序的 'YYYY-MM-DD' 数组
+ */
+function planDueDates(plan, fromTs, toTs) {
+  const result = [];
+  if (!plan) return result;
+  const start = startOfDay(fromTs);
+  const end = startOfDay(toTs);
+  if (end.getTime() < start.getTime()) return result;
+
+  // 安全阀：最多枚举 800 天，防止误传时间戳导致死循环
+  const maxDays = Math.min(daysBetween(start, end), 800);
+  for (let i = 0; i <= maxDays; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    if (isPlanDueOn(plan, d)) result.push(dateKey(d));
+  }
+  return result;
+}
+
+/**
+ * 今日视图：今天应当触发的计划，按提醒时间升序，并附加运行时状态。
+ * @returns {Array<Object>} 每项 = { ...plan, dueTs, dueTime, passed, done, doneAuto, doneManual, next, theme }
+ */
+function todayPlans() {
+  const now = Date.now();
+  const today = new Date();
+  const tk = dateKey(today);
+
+  const autoSet = getReminderLog().get(tk) || new Set();
+  const manualSet = new Set(
+    loadCheckins()
+      .filter((c) => c.planId && dateKey(c.ts) === tk)
+      .map((c) => c.planId)
+  );
+
+  return loadPlans()
+    .filter((p) => isPlanDueOn(p, today))
+    .map((p) => {
+      const hm = parseHHMM(p.time);
+      const dueTs = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate(),
+        hm.h,
+        hm.m,
+        0,
+        0
+      ).getTime();
+      const doneAuto = autoSet.has(p.id);
+      const doneManual = manualSet.has(p.id);
+      return Object.assign({}, p, {
+        dueTs,
+        dueTime: p.time || "08:00",
+        passed: dueTs <= now,
+        done: doneAuto || doneManual,
+        doneAuto,
+        doneManual,
+        next: nextReminder(p, now),
+        theme: themeOf(p),
+      });
+    })
+    .sort((a, b) => a.dueTs - b.dueTs);
+}
+
+// ============================ v3 活动数据与统计 ============================
+
+/**
+ * 把 reminder-state 的 sent 对象重建成倒排索引 dateKey → Set<planId>。
+ * @param {Object} sent 形如 {"2026-08-06|planId": 1754460000}
+ * @returns {void}
+ */
+function rebuildReminderLog(sent) {
+  reminderSentRaw = sent && typeof sent === "object" ? sent : {};
+  reminderLogMap = new Map();
+  Object.keys(reminderSentRaw).forEach((key) => {
+    const sep = key.indexOf("|");
+    if (sep <= 0) return;
+    const d = key.slice(0, sep);
+    const planId = key.slice(sep + 1);
+    if (!planId) return;
+    if (!reminderLogMap.has(d)) reminderLogMap.set(d, new Set());
+    reminderLogMap.get(d).add(planId);
+  });
+}
+
+// 页面加载时先用本地缓存把索引填上，保证首屏（fetch 未回来前）也有数据可渲染
+(function initReminderCache() {
+  try {
+    const raw = safeGetItem(REMINDER_CACHE_KEY);
+    if (!raw) return;
+    const cached = JSON.parse(raw);
+    if (cached && typeof cached === "object") {
+      rebuildReminderLog(cached.sent);
+      reminderMeta = {
+        loaded: false,
+        fromCache: true,
+        fetchedAt: Number(cached.fetchedAt) || 0,
+      };
+    }
+  } catch (e) {
+    console.error("提醒状态缓存解析失败，已忽略：", e);
+  }
+})();
+
+/**
+ * 异步拉取 data/reminder-state.json（同源，只读）。
+ * 成功后写入 localStorage 缓存并更新内存索引；
+ * 失败（file:// / 404 / 网络）时静默降级读缓存，绝不抛错。
+ * @returns {Promise<{sent:Object, fromCache:boolean, fetchedAt:number}>}
+ */
+async function loadReminderLog() {
+  try {
+    const resp = await fetch(`${REMINDER_STATE_URL}?t=${Date.now()}`, {
+      cache: "no-store",
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const sent = data && typeof data.sent === "object" && data.sent ? data.sent : {};
+    rebuildReminderLog(sent);
+    reminderMeta = { loaded: true, fromCache: false, fetchedAt: Date.now() };
+    safeSetItem(
+      REMINDER_CACHE_KEY,
+      JSON.stringify({ sent, fetchedAt: reminderMeta.fetchedAt })
+    );
+    return { sent, fromCache: false, fetchedAt: reminderMeta.fetchedAt };
+  } catch (e) {
+    // 本地 file:// 预览、首次部署文件还不存在、断网……都会走到这里，属于预期降级
+    console.warn("提醒状态获取失败，降级使用本地缓存：", e);
+    reminderMeta = {
+      loaded: true,
+      fromCache: true,
+      fetchedAt: reminderMeta.fetchedAt || 0,
+    };
+    return {
+      sent: reminderSentRaw,
+      fromCache: true,
+      fetchedAt: reminderMeta.fetchedAt,
+    };
+  }
+}
+
+/**
+ * 同步读取当前内存/缓存中的提醒记录，供渲染函数直接使用。
+ * @returns {Map<string, Set<string>>} dateKey → Set<planId>
+ */
+function getReminderLog() {
+  return reminderLogMap;
+}
+
+/**
+ * 提醒数据的加载状态，供页面显示「本地预览模式 / 等待首次提醒」提示。
+ * @returns {{loaded:boolean, fromCache:boolean, fetchedAt:number, size:number}}
+ */
+function reminderStatus() {
+  return {
+    loaded: reminderMeta.loaded,
+    fromCache: reminderMeta.fromCache,
+    fetchedAt: reminderMeta.fetchedAt,
+    size: Object.keys(reminderSentRaw).length,
+  };
+}
+
+/**
+ * 汇总「活动日历」：手动打卡 + 自动提醒送达。
+ * @param {{planId?:string, source?:'all'|'auto'|'manual'}} [opts] 过滤条件
+ * @returns {Map<string, {count:number, manual:number, auto:number, plans:Set<string>}>}
+ *          key = 'YYYY-MM-DD'
+ */
+function buildActivityMap(opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const planId = o.planId || null;
+  const source = ["auto", "manual"].indexOf(o.source) >= 0 ? o.source : "all";
+  const map = new Map();
+
+  /**
+   * 往 map 里累加一条活动。
+   * @param {string} key 日期键
+   * @param {string} pid 计划 id
+   * @param {'auto'|'manual'} kind 来源
+   */
+  const bump = (key, pid, kind) => {
+    if (!map.has(key)) {
+      map.set(key, { count: 0, manual: 0, auto: 0, plans: new Set() });
+    }
+    const cell = map.get(key);
+    cell.count += 1;
+    cell[kind] += 1;
+    if (pid) cell.plans.add(pid);
+  };
+
+  // 自动：提醒送达
+  if (source === "all" || source === "auto") {
+    getReminderLog().forEach((planSet, key) => {
+      planSet.forEach((pid) => {
+        if (planId && pid !== planId) return;
+        bump(key, pid, "auto");
+      });
+    });
+  }
+
+  // 手动：本地打卡记录
+  if (source === "all" || source === "manual") {
+    loadCheckins().forEach((c) => {
+      if (c.source === "auto") return; // 理论上本地不会有 auto 记录，防御性跳过
+      if (planId && c.planId !== planId) return;
+      bump(dateKey(c.ts), c.planId, "manual");
+    });
+  }
+
+  return map;
+}
+
+/**
+ * 构建热力图数据（GitHub 风格：按周分列，周一在最上面一行）。
+ * @param {number} [days=182] 回溯天数（仪表盘 84 ≈ 12 周；统计页 371 ≈ 53 周）
+ * @param {{planId?:string, source?:string}} [opts] 过滤条件
+ * @returns {Object} HeatmapData
+ */
+function buildHeatmap(days, opts) {
+  const span = Number.isFinite(Number(days)) && Number(days) > 0 ? Math.floor(Number(days)) : 182;
+  const activity = buildActivityMap(opts);
+
+  const end = startOfDay(new Date());
+  const rawStart = new Date(end.getFullYear(), end.getMonth(), end.getDate() - (span - 1));
+  // 对齐到周一，保证每一列都是完整的一周
+  const gridStart = new Date(
+    rawStart.getFullYear(),
+    rawStart.getMonth(),
+    rawStart.getDate() - pyWeekday(rawStart)
+  );
+
+  const totalDays = daysBetween(gridStart, end) + 1;
+  const weeks = Math.ceil(totalDays / 7);
+
+  const cells = [];
+  const monthTicks = [];
+  let lastTickMonth = -1;
+  let max = 0;
+  let total = 0;
+  let activeDays = 0;
+
+  for (let i = 0; i < totalDays; i++) {
+    const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+    const key = dateKey(d);
+    const hit = activity.get(key);
+    const count = hit ? hit.count : 0;
+    const manual = hit ? hit.manual : 0;
+    const auto = hit ? hit.auto : 0;
+
+    // 从高到低匹配阈值：count>=6→4, >=4→3, >=2→2, >=1→1, 否则 0
+    let level = 0;
+    for (let li = HEATMAP_LEVELS.length - 1; li >= 0; li--) {
+      if (count >= HEATMAP_LEVELS[li] && HEATMAP_LEVELS[li] > 0) {
+        level = li;
+        break;
+      }
+    }
+
+    const col = Math.floor(i / 7);
+    const row = i % 7; // gridStart 已对齐周一，因此 row 直接等于 pyWeekday
+
+    if (count > 0) {
+      activeDays += 1;
+      total += count;
+      if (count > max) max = count;
+    }
+
+    // 每月第一次出现（在周一那一行）时打一个月份刻度
+    if (row === 0 && d.getMonth() !== lastTickMonth) {
+      lastTickMonth = d.getMonth();
+      monthTicks.push({ col, label: `${d.getMonth() + 1} 月` });
+    }
+
+    cells.push({
+      date: key,
+      ts: d.getTime(),
+      count,
+      level,
+      manual,
+      auto,
+      col,
+      row,
+      future: d.getTime() > end.getTime(),
+    });
+  }
+
+  return {
+    cells,
+    weeks,
+    max,
+    total,
+    activeDays,
+    startDate: dateKey(gridStart),
+    endDate: dateKey(end),
+    monthTicks,
+  };
+}
+
+/**
+ * 计算某计划的连续记录。
+ * 语义：按「该计划的应触发日序列」回溯，而非自然日——
+ *   daily 计「连续 N 天」，weekly 计「连续 N 周」，monthly 计「连续 N 月」。
+ * 今日若尚未到点，从上一个应触发日开始回溯（不因「今天还没到」判断中断）。
+ * @param {string} planId 计划 id
+ * @returns {{current:number, best:number, unit:string, lastDate:(string|null)}}
+ */
+function computeStreak(planId) {
+  const plan = loadPlans().find((p) => p.id === planId) || null;
+  const unit = !plan
+    ? "天"
+    : plan.freq === "weekly"
+    ? "周"
+    : plan.freq === "monthly"
+    ? "月"
+    : "天";
+  if (!plan) return { current: 0, best: 0, unit, lastDate: null };
+
+  const now = Date.now();
+  // 回溯上限：创建时间与 2 年前取较晚者，避免枚举过多天数
+  const floor = now - 730 * DAY_MS;
+  const from = Math.max(Number(plan.createdAt) || floor, floor);
+  const dues = planDueDates(plan, from, now);
+  if (dues.length === 0) return { current: 0, best: 0, unit, lastDate: null };
+
+  const activity = buildActivityMap({ planId });
+  const todayKey = dateKey(now);
+  const seq = dues.slice();
+
+  // 今天是应触发日但还没到点、且尚无活动 → 从序列里摘掉，不算「中断」
+  if (seq[seq.length - 1] === todayKey && !activity.has(todayKey)) {
+    const hm = parseHHMM(plan.time);
+    const today = new Date();
+    const dueTs = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+      hm.h,
+      hm.m,
+      0,
+      0
+    ).getTime();
+    if (dueTs > now) seq.pop();
+  }
+
+  let current = 0;
+  for (let i = seq.length - 1; i >= 0; i--) {
+    if (activity.has(seq[i])) current += 1;
+    else break;
+  }
+
+  let best = 0;
+  let run = 0;
+  let lastDate = null;
+  for (const key of dues) {
+    if (activity.has(key)) {
+      run += 1;
+      if (run > best) best = run;
+      lastDate = key;
+    } else {
+      run = 0;
+    }
+  }
+
+  return { current, best: Math.max(best, current), unit, lastDate };
+}
+
+/**
+ * 全站总连续天数（任意计划在某个自然日有活动，即算「这一天亮着」）。
+ * 今天还没有任何活动时，从昨天开始回溯（当天进行中不算断）。
+ * @returns {{current:number, best:number}}
+ */
+function globalStreak() {
+  const map = buildActivityMap();
+  if (map.size === 0) return { current: 0, best: 0 };
+
+  const cursor = startOfDay(new Date());
+  if (!map.has(dateKey(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  let current = 0;
+  while (map.has(dateKey(cursor))) {
+    current += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  const keys = Array.from(map.keys()).sort();
+  let best = 0;
+  let run = 0;
+  let prev = null;
+  for (const key of keys) {
+    run = prev && daysBetween(prev, key) === 1 ? run + 1 : 1;
+    if (run > best) best = run;
+    prev = key;
+  }
+
+  return { current, best: Math.max(best, current) };
+}
+
+/**
+ * 计算某计划在最近 days 天的完成率。
+ * 分母是「应触发日」而非自然日；早于计划创建时间的日子不计入，避免新计划一上来就 0%。
+ * @param {string} planId 计划 id
+ * @param {number} [days=30] 统计窗口
+ * @returns {{done:number, expected:number, missed:number, rate:number}}
+ */
+function completionRate(planId, days) {
+  const span = Number.isFinite(Number(days)) && Number(days) > 0 ? Math.floor(Number(days)) : 30;
+  const plan = loadPlans().find((p) => p.id === planId) || null;
+  if (!plan) return { done: 0, expected: 0, missed: 0, rate: 0 };
+
+  const now = Date.now();
+  const windowStart = startOfDay(now - (span - 1) * DAY_MS).getTime();
+  const createdAt = Number(plan.createdAt);
+  const from = Number.isFinite(createdAt)
+    ? Math.max(windowStart, startOfDay(createdAt).getTime())
+    : windowStart;
+
+  const dues = planDueDates(plan, from, now);
+  const activity = buildActivityMap({ planId });
+  const todayKey = dateKey(now);
+  const seq = dues.slice();
+
+  // 今天还没到点的，不计入分母
+  if (seq[seq.length - 1] === todayKey && !activity.has(todayKey)) {
+    const hm = parseHHMM(plan.time);
+    const today = new Date();
+    const dueTs = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+      hm.h,
+      hm.m,
+      0,
+      0
+    ).getTime();
+    if (dueTs > now) seq.pop();
+  }
+
+  const expected = seq.length;
+  const done = seq.filter((key) => activity.has(key)).length;
+  return {
+    done,
+    expected,
+    missed: Math.max(expected - done, 0),
+    rate: expected > 0 ? done / expected : 0,
+  };
+}
+
+/**
+ * 仪表盘顶部概览指标。
+ * @returns {Object} OverviewStats
+ */
+function overviewStats() {
+  const plans = loadPlans();
+  const active = plans.filter((p) => p.enabled !== false);
+  const today = todayPlans();
+  const streak = globalStreak();
+
+  // 30 天完成率：所有启用计划的「应完成 / 已完成」总量之比（而非各计划百分比的平均）
+  let doneSum = 0;
+  let expectedSum = 0;
+  active.forEach((p) => {
+    const r = completionRate(p.id, 30);
+    doneSum += r.done;
+    expectedSum += r.expected;
+  });
+
+  // 下一个将要提醒的计划
+  let nextUp = null;
+  const now = Date.now();
+  active.forEach((p) => {
+    const info = nextReminder(p, now);
+    if (!info) return;
+    if (!nextUp || info.ts < nextUp.info.ts) nextUp = { plan: p, info };
+  });
+
+  return {
+    planTotal: plans.length,
+    planActive: active.length,
+    todayDue: today.length,
+    todayDone: today.filter((v) => v.done).length,
+    streak: streak.current,
+    streakBest: streak.best,
+    rate30: expectedSum > 0 ? doneSum / expectedSum : 0,
+    totalActive: buildActivityMap().size, // 有记录的自然日总数
+    nextUp,
+  };
+}
+
+/**
+ * 近 N 天每日活动数，供统计页趋势折线使用。
+ * @param {number} [days=30] 天数
+ * @returns {Array<{date:string, count:number, label:string}>} 升序
+ */
+function dailyTrend(days) {
+  const span = Number.isFinite(Number(days)) && Number(days) > 0 ? Math.floor(Number(days)) : 30;
+  const activity = buildActivityMap();
+  const end = startOfDay(new Date());
+  const out = [];
+  for (let i = span - 1; i >= 0; i--) {
+    const d = new Date(end.getFullYear(), end.getMonth(), end.getDate() - i);
+    const key = dateKey(d);
+    const hit = activity.get(key);
+    out.push({
+      date: key,
+      count: hit ? hit.count : 0,
+      label: `${d.getMonth() + 1}/${d.getDate()}`,
+    });
+  }
+  return out;
+}
+
+/**
+ * 里程碑徽章解锁情况（按全站最佳连续天数判定）。
+ * @returns {Array<Object>} 每项 = {...MILESTONES 项, unlocked:boolean, progress:number, reached:number}
+ */
+function milestones() {
+  const streak = globalStreak();
+  const reached = Math.max(streak.current, streak.best);
+  return MILESTONES.map((m) =>
+    Object.assign({}, m, {
+      unlocked: reached >= m.days,
+      progress: Math.min(1, m.days > 0 ? reached / m.days : 0),
+      reached,
+    })
+  );
+}
+
+// ============================ 备份 / 恢复（v3） ============================
+
+/**
+ * 导出全量数据为 JSON 字符串（计划 + 台账 + 偏好，**不含 token**）。
+ * @returns {string} 格式化后的 JSON 文本
+ */
+function exportData() {
+  const payload = {
+    version: 3,
+    exportedAt: Date.now(),
+    plans: loadPlans(),
+    checkins: loadCheckins(),
+    prefs: loadPrefs(),
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * 从 JSON 字符串导入并覆盖 / 合并本地数据。
+ * @param {string} json 导入内容
+ * @param {{merge?:boolean}} [opts] merge=true 时按 id 合并，false（默认）时整体覆盖
+ * @returns {{plans:number, checkins:number}} 导入后本地的条数
+ * @throws {Error} 解析失败或结构非法时抛出可直接展示给用户的错误
+ */
+function importData(json, opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  let data;
+  try {
+    data = JSON.parse(String(json || ""));
+  } catch (e) {
+    throw new Error("导入失败：文件不是合法的 JSON。");
+  }
+  if (!data || typeof data !== "object") {
+    throw new Error("导入失败：文件内容不是一个对象。");
+  }
+  const incomingPlans = Array.isArray(data.plans) ? data.plans.filter((x) => x && typeof x === "object") : null;
+  const incomingCheckins = Array.isArray(data.checkins)
+    ? data.checkins.filter((x) => x && typeof x === "object")
+    : null;
+  if (!incomingPlans && !incomingCheckins) {
+    throw new Error("导入失败：文件里既没有 plans 也没有 checkins 字段。");
+  }
+
+  if (o.merge) {
+    // 合并：以本地为底，同 id 用导入数据覆盖，新 id 追加
+    if (incomingPlans) {
+      const byId = new Map(loadPlans().map((p) => [p.id, p]));
+      incomingPlans.forEach((p) => {
+        const id = p.id || genId();
+        byId.set(id, Object.assign({}, byId.get(id) || {}, p, { id }));
+      });
+      savePlans(Array.from(byId.values()));
+    }
+    if (incomingCheckins) {
+      const byId = new Map(loadCheckins().map((c) => [c.id, c]));
+      incomingCheckins.forEach((c) => {
+        const id = c.id || genId();
+        byId.set(id, Object.assign({}, byId.get(id) || {}, c, { id }));
+      });
+      saveCheckins(Array.from(byId.values()).sort((a, b) => (a.ts || 0) - (b.ts || 0)));
+    }
+  } else {
+    if (incomingPlans) savePlans(incomingPlans);
+    if (incomingCheckins) {
+      saveCheckins(incomingCheckins.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0)));
+    }
+  }
+
+  if (data.prefs && typeof data.prefs === "object") savePrefs(data.prefs);
+
+  return { plans: loadPlans().length, checkins: loadCheckins().length };
+}
+
+// ============================ 同步到 GitHub（v2 兼容，不改文案） ============================
 
 /**
  * 取回可用的 PAT：优先取管理页输入框的当前值（并持久化），否则读 localStorage。
- * 首页没有 #pat-input，此时直接读 localStorage。
+ * 首页 / 统计页没有 #pat-input，此时直接读 localStorage。
  * @returns {string} token，取不到时为空字符串
  */
 function resolveToken() {
@@ -305,16 +1418,17 @@ function resolveToken() {
   if (input) {
     const typed = input.value.trim();
     if (typed) {
-      localStorage.setItem(TOKEN_KEY, typed);
+      safeSetItem(TOKEN_KEY, typed);
       return typed;
     }
   }
-  return localStorage.getItem(TOKEN_KEY) || "";
+  return safeGetItem(TOKEN_KEY) || "";
 }
 
 /**
  * 纯粹的 repository_dispatch 调用：只发请求，不碰任何 UI。
  * 失败时抛出【可直接展示给用户】的错误信息，由调用方决定提示方式。
+ * ⚠️ event_type 与 client_payload 结构是 sync.yml 的输入契约，禁止改动。
  * @param {Array<Object>} plans 计划数组
  * @param {Array<Object>} checkins 台账数组
  * @param {string} token GitHub Personal Access Token
@@ -406,25 +1520,4 @@ async function syncToRepo() {
       syncBtn.textContent = originalText || "同步到仓库";
     }
   }
-}
-
-// ============================ 展示辅助 ============================
-
-/**
- * 生成计划的频率 + 时间 + 日期的中文描述，用于列表展示。
- * @param {{freq:string, time:string, day:number}} plan 计划对象
- * @returns {string} 形如 "每周 · 周三 · 08:00"
- */
-function describePlan(plan) {
-  const parts = [];
-  if (plan.freq === "weekly") {
-    parts.push("每周", WEEKDAY_LABELS[Number(plan.day)] || "周一");
-  } else if (plan.freq === "monthly") {
-    // 「每月」已含在日期描述里，避免出现「每月 · 每月28日」这种重复
-    parts.push(`每月${Number(plan.day) || 1}日`);
-  } else {
-    parts.push(FREQ_LABELS[plan.freq] || "每日");
-  }
-  parts.push(plan.time || "08:00");
-  return parts.join(" · ");
 }

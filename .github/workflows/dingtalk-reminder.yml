@@ -1,11 +1,40 @@
 name: 钉钉打卡提醒
 
-# 触发：每小时整点跑一次（UTC），脚本内部换算北京时间后只推「本小时到期」的计划；
-# 外加手动触发便于测试。
+# 触发：每 15 分钟跑一次（UTC cron，脚本内部换算成北京时间再判定）。
+#
+# 为什么是 15 分钟而不是整点？
+#   v2 用 "0 * * * *" 每小时整点跑，只能识别「本小时」，导致
+#   08:00 与 08:30 的计划都被压到同一次推送、且延迟最多 59 分钟。
+#   v3 改成 */15 + 30 分钟补偿窗口（WINDOW_MIN），配合幂等去重，
+#   既能贴近真实时间点，又不会因为 GitHub Actions 调度抖动而漏推或重复推。
+#
+# ⚠️ GitHub 的 schedule 本身不保证准时，高峰期延迟 5~20 分钟是常态，
+#   WINDOW_MIN=30 就是为了兜住这段抖动；真的漏过窗口只会少推一次，不会崩。
 on:
   schedule:
-    - cron: "0 * * * *"
-  workflow_dispatch: {}
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "演练模式：只打印判定结果，不发钉钉、不写状态文件"
+        type: boolean
+        required: false
+        default: false
+      force_plan_id:
+        description: "强制推送指定计划 id（留空＝按时间正常判定；会跳过去重）"
+        type: string
+        required: false
+        default: ""
+
+# 同一时刻只允许一个提醒任务在跑，避免两次调度撞在一起把同一条推两遍。
+# cancel-in-progress 保持 false：宁可排队，也不要把已经发出去一半的任务砍掉。
+concurrency:
+  group: dingtalk-reminder
+  cancel-in-progress: false
+
+# 需要写权限来提交 data/reminder-state.json（幂等去重的落盘状态）
+permissions:
+  contents: write
 
 jobs:
   reminder:
@@ -13,89 +42,390 @@ jobs:
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          # 取全量历史：推送冲突时要用 git pull --rebase 重试，浅克隆会 rebase 失败
+          fetch-depth: 0
 
-      - name: 按计划发送钉钉提醒（含加签）
-        # webhook 与 secret 均从 GitHub Secrets 读取，绝不写死真实值
+      - name: 判定到期计划并发送钉钉提醒
+        id: send
+        # webhook 与 secret 均从 GitHub Secrets 读取，绝不写死真实值；
+        # workflow_dispatch 的输入统一走 env，避免 ${{ }} 直接拼进脚本造成注入。
         env:
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          FORCE_PLAN_ID: ${{ inputs.force_plan_id }}
         run: |
           python3 - <<'PY'
-          import time, hmac, hashlib, base64, urllib.parse, json, os, subprocess, datetime, calendar
+          # -*- coding: utf-8 -*-
+          """按计划判定到期项并推送钉钉（加签），带幂等去重与补偿窗口。"""
+          import base64
+          import calendar
+          import datetime
+          import hashlib
+          import hmac
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
 
-          webhook = os.environ["DINGTALK_WEBHOOK"]
-          secret = os.environ["DINGTALK_SECRET"]
+          # ---------------------------- 常量 ----------------------------
 
-          timestamp = str(round(time.time() * 1000))
-          string_to_sign = f"{timestamp}\n{secret}"
-          sign = base64.b64encode(hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256).digest()).decode("utf-8")
-          sign = urllib.parse.quote_plus(sign)
-          url = f"{webhook}&timestamp={timestamp}&sign={sign}"
+          PLANS_PATH = os.path.join("data", "plans.json")
+          STATE_PATH = os.path.join("data", "reminder-state.json")
+          SITE_URL = "https://chenliguan42057.github.io/RUN-form/"
+          # 补偿窗口：计划时间过去 WINDOW_MIN 分钟以内都算「本次该推」
+          WINDOW_MIN = 30
+          # 到期计划达到这个数量就合并成一条批量消息，避免刷屏
+          BATCH_THRESHOLD = 2
+          # 状态文件里超过这个天数的记录会被清掉，防止无限增长
+          KEEP_DAYS = 120
+          # 北京时间（UTC+8）。仓库里所有 plan.time 都按北京时间理解。
+          BJ_TZ = datetime.timezone(datetime.timedelta(hours=8))
 
-          # 北京时间
-          bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-          now_hh = f"{bj.hour:02d}"
+          # ⚠️⚠️ 下面这份鼓励语必须与 store.js 里的 VAN_GOGH_QUOTES 一字不差。
+          #      前端首页与钉钉消息共用同一套文案，改动必须【两边同步】，
+          #      否则同一天在网页和钉钉里会看到不同的句子。
+          QUOTES = [
+              "我梦见我的画，然后我画我的梦。",
+              "伟大的事，由一系列小事汇聚而成。",
+              "如果心里有个声音说「你做不到」，那就去做，那个声音自会沉默。",
+              "我总在追寻，却从不到达；我总在跋涉，却从不停息。",
+              "星星让我做梦。",
+              "我宁愿死于热情，也不愿死于无聊。",
+              "普通的日子里，也藏着值得画下来的光。",
+              "别灰心，明天太阳照常升起，而我们照常出发。",
+              "去爱尽可能多的事物，真正的力量就藏在那里。",
+              "我心中有一团火，路过的人只看到烟。",
+              "画家不该被画布上的空白吓倒。",
+              "只要还在走，路就没有尽头。",
+          ]
 
-          due = []
-          try:
-              with open("data/plans.json", encoding="utf-8") as f:
-                  plans = json.load(f)
-          except Exception:
-              plans = []
+          # ---------------------------- 工具函数 ----------------------------
+
+          def i32(n):
+              """把任意整数截断成 32 位有符号整数，模拟 JS 的 `| 0`。"""
+              n &= 0xFFFFFFFF
+              return n - 0x100000000 if n >= 0x80000000 else n
+
+          def hash_string(text):
+              """djb2 哈希，与 store.js 的 hashString 完全等价。
+
+              store.js: hash = ((hash << 5) + hash + charCode) | 0，最后取绝对值。
+              这里对 ASCII 种子（形如 '2026-08-06'）与 JS 结果逐位一致，
+              因此同一天前端和钉钉会抽到同一句鼓励语。
+              """
+              h = 5381
+              for ch in str(text):
+                  h = i32(i32(h << 5) + h + ord(ch))
+              return abs(h)
+
+          def pick_quote(seed):
+              """按种子确定性地取一句鼓励语。"""
+              return QUOTES[hash_string(seed) % len(QUOTES)]
+
+          def to_int(value, default=0):
+              """把任意输入转成 int；None / 空串 / 非数字统一回落到 default。"""
+              try:
+                  return int(value)
+              except (TypeError, ValueError):
+                  return default
+
+          def parse_hhmm(text):
+              """解析 'HH:MM'，非法输入回落到 08:00。"""
+              if isinstance(text, str) and ":" in text:
+                  head, _, tail = text.partition(":")
+                  hour = to_int(head, -1)
+                  minute = to_int(tail, -1)
+                  if 0 <= hour <= 23 and 0 <= minute <= 59:
+                      return hour, minute
+              return 8, 0
+
+          def load_json(path, fallback):
+              """读 JSON；文件不存在 / 内容损坏时返回 fallback，绝不让 workflow 变红。"""
+              try:
+                  with open(path, encoding="utf-8") as fp:
+                      return json.load(fp)
+              except (OSError, ValueError) as exc:
+                  print(f"读取 {path} 失败（{exc}），使用兜底值")
+                  return fallback
+
+          def set_output(name, value):
+              """写 step output，供后续的提交步骤判断要不要跑。"""
+              path = os.environ.get("GITHUB_OUTPUT")
+              if not path:
+                  return
+              with open(path, "a", encoding="utf-8") as fp:
+                  fp.write(f"{name}={value}\n")
+
+          def matches_freq(plan, now):
+              """判断计划在 now 这一天是否应当触发（只看日期，不看时刻）。
+
+              ⚠️ 星期口径：plan.day 是 Python 口径（周一 = 0），
+                 datetime.weekday() 同样是周一 = 0，因此可以直接比较，不做任何换算。
+                 前端 store.js 里因为 JS 的 getDay() 是周日 = 0，才需要 (day + 1) % 7。
+              """
+              freq = plan.get("freq")
+              day = to_int(plan.get("day"), 0)
+              if freq == "weekly":
+                  return now.weekday() == day
+              if freq == "monthly":
+                  # 短月兜底：把 31 日这类不存在的日期落到当月最后一天，避免静默漏推
+                  last_day = calendar.monthrange(now.year, now.month)[1]
+                  return now.day == min(max(day, 1), last_day)
+              # daily 及任何未知频率都按每日处理
+              return True
+
+          def send_dingtalk(title, text):
+              """加签后调用钉钉机器人 webhook；失败抛异常由调用方决定退出码。"""
+              webhook = os.environ.get("DINGTALK_WEBHOOK", "")
+              secret = os.environ.get("DINGTALK_SECRET", "")
+              if not webhook or not secret:
+                  raise RuntimeError("缺少 DINGTALK_WEBHOOK / DINGTALK_SECRET secret")
+
+              timestamp = str(round(time.time() * 1000))
+              string_to_sign = f"{timestamp}\n{secret}"
+              digest = hmac.new(
+                  secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256
+              ).digest()
+              sign = urllib.parse.quote_plus(base64.b64encode(digest).decode("utf-8"))
+              url = f"{webhook}&timestamp={timestamp}&sign={sign}"
+
+              payload = {
+                  "msgtype": "markdown",
+                  "markdown": {"title": title, "text": text},
+              }
+              body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+              request = urllib.request.Request(
+                  url,
+                  data=body,
+                  headers={"Content-Type": "application/json; charset=utf-8"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as resp:
+                      raw = resp.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as exc:
+                  raise RuntimeError(f"钉钉 HTTP {exc.code}：{exc.read().decode('utf-8', 'replace')}")
+              except urllib.error.URLError as exc:
+                  raise RuntimeError(f"钉钉网络错误：{exc.reason}")
+
+              # 钉钉的业务错误（签名失效 / 频率超限）HTTP 仍是 200，必须解析响应体
+              try:
+                  result = json.loads(raw or "{}")
+              except ValueError:
+                  raise RuntimeError(f"钉钉响应无法解析：{raw}")
+              if result.get("errcode") not in (0, None):
+                  raise RuntimeError(f"钉钉返回错误：{result}")
+              return result
+
+          # ---------------------------- 主流程 ----------------------------
+
+          dry_run = str(os.environ.get("DRY_RUN", "")).strip().lower() == "true"
+          force_plan_id = str(os.environ.get("FORCE_PLAN_ID", "")).strip()
+
+          now = datetime.datetime.now(BJ_TZ)
+          today_key = now.strftime("%Y-%m-%d")
+
+          plans = load_json(PLANS_PATH, [])
           if not isinstance(plans, list):
               plans = []
+          plans = [p for p in plans if isinstance(p, dict)]
 
-          for p in plans:
-              if not p.get("enabled"):
+          state = load_json(STATE_PATH, {})
+          if not isinstance(state, dict):
+              state = {}
+          sent = state.get("sent")
+          if not isinstance(sent, dict):
+              sent = {}
+
+          # ---- 1. 挑出「时间已到且还在补偿窗口内」的计划 ----
+          # 补偿窗口：win_start = now - WINDOW_MIN，win_end = now（右闭，等价于原 0 <= delta < WINDOW_MIN）。
+          # 跨天：窗口起点可能落在昨天，候选日期集合取 {win_start.date(), win_end.date()}（跨天时为两天），
+          # 对每个候选日期独立做频率匹配 + 落窗判定（对齐设计文档 D3 / 第 811、833 行）。
+          win_end = now
+          win_start = now - datetime.timedelta(minutes=WINDOW_MIN)
+          candidate_days = sorted({win_start.date(), win_end.date()})
+
+          due = []  # 元素为 (plan, day_key)，day_key 是「计划所属日」，去重键随之走
+          for plan in plans:
+              plan_id = str(plan.get("id") or "")
+              if not plan_id:
+                  print(f"跳过无 id 的计划：{plan.get('name')}")
                   continue
-              t = p.get("time", "")
-              if not isinstance(t, str) or not t.startswith(now_hh + ":"):
+              if not plan.get("enabled", True):
                   continue
-              freq = p.get("freq")
 
-              # 统一把 day 解析成整数；键缺失 / 值为 null / 非数字时兜底为 0，避免 workflow 变红
-              try:
-                  day = int(p.get("day", 0) or 0)
-              except (TypeError, ValueError):
-                  day = 0
+              hour, minute = parse_hhmm(plan.get("time"))
+              matched_day = None
+              for d in candidate_days:
+                  # ⚠️ 频率匹配必须用候选日 d，跨天 / weekly / monthly 才不会错位
+                  if not matches_freq(plan, d):
+                      continue
+                  dt = datetime.datetime.combine(
+                      d, datetime.time(hour, minute), tzinfo=BJ_TZ
+                  )
+                  # 右闭左开窗口：(win_start, win_end]，与原 0 <= delta < WINDOW_MIN 等价
+                  if not (win_start < dt <= win_end):
+                      continue
+                  matched_day = d
+                  break
+              if matched_day is None:
+                  continue
+              due.append((plan, matched_day.strftime("%Y-%m-%d")))
 
-              if freq == "daily":
-                  due.append(p)
-              elif freq == "weekly":
-                  if bj.weekday() == day:
-                      due.append(p)
-              elif freq == "monthly":
-                  # 短月兜底：2 月 31 日这类不存在的日期按当月最后一天判定，避免静默漏推
-                  last_day = calendar.monthrange(bj.year, bj.month)[1]
-                  if bj.day == min(day, last_day):
-                      due.append(p)
+          # ---- 2. 强制推送（仅 workflow_dispatch 手工测试用，跳过时间与去重） ----
+          if force_plan_id:
+              forced = next((p for p in plans if str(p.get("id") or "") == force_plan_id), None)
+              if forced is None:
+                  print(f"force_plan_id={force_plan_id} 在 data/plans.json 里不存在")
+                  set_output("sent_any", "false")
+                  raise SystemExit(1)
+              if not any(str(p.get("id")) == force_plan_id for p, _ in due):
+                  due.append((forced, today_key))
+              print(f"强制推送已启用：{forced.get('name')}（跳过时间判定与去重）")
 
           if not due:
-              print("本小时无到期计划，跳过推送")
+              print(f"[{now:%Y-%m-%d %H:%M} +08:00] 当前窗口内无到期计划，跳过推送")
+              set_output("sent_any", "false")
               raise SystemExit(0)
 
-          if len(due) == 1:
-              text = f"**{due[0]['name']}** 到时间啦，去打个卡吧 👉 https://chenliguan42057.github.io/RUN-form/"
-          else:
-              names = "、".join(p["name"] for p in due)
-              text = f"本小时有 {len(due)} 个计划到时间啦（{names}），去打个卡吧 👉 https://chenliguan42057.github.io/RUN-form/"
+          # ---- 3. 幂等去重：同一天同一计划只推一次 ----
+          # key 形如 "2026-08-06|abc123"，day_key 是「计划所属日」（跨天时为昨天），
+          # 与 store.js 的 rebuildReminderLog 解析口径一致，避免热力图日期错位与雪球漏推。
+          pending = []
+          for plan, day_key in due:
+              key = f"{day_key}|{plan.get('id')}"
+              if key in sent and not (force_plan_id and str(plan.get("id")) == force_plan_id):
+                  print(f"已推送过，跳过：{key}")
+                  continue
+              pending.append((key, plan))
 
-          payload = {
-              "msgtype": "markdown",
-              "markdown": {"title": "不按惯例 · 打卡提醒", "text": "## 不按惯例 · 打卡提醒\n> " + text},
-          }
-          data = json.dumps(payload, ensure_ascii=False)
-          cmd = ["curl", "-s", "-X", "POST", "-H", "Content-Type: application/json", "-d", data, url]
-          result = subprocess.run(cmd, capture_output=True, text=True)
-          # curl 本身失败（网络/参数错误）必须让 workflow 变红
-          if result.returncode != 0:
-              print("curl 失败:", result.stderr); raise SystemExit(1)
-          # 钉钉业务错误（如签名失效、token 过期）HTTP 仍是 200，需解析响应体
+          if not pending:
+              print("窗口内的计划本日均已推送过，无需重复发送")
+              set_output("sent_any", "false")
+              raise SystemExit(0)
+
+          # ---- 4. 组装消息 ----
+          quote = pick_quote(today_key)
+          time_label = now.strftime("%H:%M")
+
+          def plan_line(plan):
+              """单个计划的一行展示：图标 + 名称 + 时间 +（可选）一句话说明。"""
+              icon = plan.get("icon") or "🌟"
+              name = plan.get("name") or "未命名"
+              desc = (plan.get("desc") or "").strip()
+              tail = f"　—　{desc}" if desc else ""
+              return f"- {icon} **{name}**（{plan.get('time', '08:00')}）{tail}"
+
+          if len(pending) < BATCH_THRESHOLD:
+              plan = pending[0][1]
+              icon = plan.get("icon") or "🌟"
+              name = plan.get("name") or "未命名"
+              desc = (plan.get("desc") or "").strip()
+              title = f"星河自律 · {name}"
+              lines = [
+                  "## 🌌 星河自律 · 打卡提醒",
+                  "",
+                  f"### {icon} {name}",
+              ]
+              if desc:
+                  lines.append(f"> {desc}")
+              lines += [
+                  "",
+                  f"到时间啦（{time_label}），去把今天这颗星点亮吧。",
+                  "",
+                  f"*{quote}*",
+                  "",
+                  f"[👉 打开星河自律]({SITE_URL})",
+                  "",
+                  "———　不按惯例 · RUN-form",
+              ]
+          else:
+              title = f"星河自律 · {len(pending)} 个计划到点"
+              lines = [
+                  "## 🌌 星河自律 · 打卡提醒",
+                  "",
+                  f"**{time_label}** 有 {len(pending)} 个计划到时间啦：",
+                  "",
+              ]
+              lines += [plan_line(plan) for _, plan in pending]
+              lines += [
+                  "",
+                  f"*{quote}*",
+                  "",
+                  f"[👉 打开星河自律]({SITE_URL})",
+                  "",
+                  "———　不按惯例 · RUN-form",
+              ]
+
+          text = "\n".join(lines)
+
+          # ---- 5. 演练模式：只打印，不发送、不写盘 ----
+          if dry_run:
+              print("===== DRY RUN：以下内容不会真的发送 =====")
+              print(f"title: {title}")
+              print(text)
+              print("=========================================")
+              set_output("sent_any", "false")
+              raise SystemExit(0)
+
+          # ---- 6. 真正发送 ----
           try:
-              resp = json.loads(result.stdout or "{}")
-          except json.JSONDecodeError:
-              print("钉钉响应解析失败:", result.stdout); raise SystemExit(1)
-          if resp.get("errcode") not in (0, None):
-              print("钉钉返回错误:", resp); raise SystemExit(1)
-          print("钉钉提醒发送成功")
+              send_dingtalk(title, text)
+          except RuntimeError as exc:
+              print(f"发送失败：{exc}")
+              # 失败不写状态文件，下一次调度还在窗口内时会自动重试
+              set_output("sent_any", "false")
+              raise SystemExit(1)
+
+          print(f"钉钉提醒发送成功，共 {len(pending)} 个计划")
+
+          # ---- 7. 落盘去重状态（发送成功后才写） ----
+          now_ms = int(time.time() * 1000)
+          for key, plan in pending:
+              sent[key] = {
+                  "name": plan.get("name") or "未命名",
+                  "time": plan.get("time") or "08:00",
+                  "icon": plan.get("icon") or "🌟",
+                  "ts": now_ms,
+              }
+
+          # 清掉过老的记录，避免状态文件无限膨胀（前端热力图最多看一年）
+          floor_date = (now - datetime.timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
+          stale = [k for k in sent if k.split("|", 1)[0] < floor_date]
+          for key in stale:
+              del sent[key]
+          if stale:
+              print(f"已清理 {len(stale)} 条 {floor_date} 之前的历史记录")
+
+          os.makedirs("data", exist_ok=True)
+          with open(STATE_PATH, "w", encoding="utf-8") as fp:
+              json.dump({"sent": sent, "updatedAt": now_ms}, fp, ensure_ascii=False, indent=2)
+              fp.write("\n")
+
+          set_output("sent_any", "true")
+          print(f"已写入 {STATE_PATH}，累计 {len(sent)} 条送达记录")
           PY
+
+      - name: 提交提醒送达状态
+        # 只有真的发出去了才提交，演练 / 无到期 / 发送失败都不会产生空提交
+        if: steps.send.outputs.sent_any == 'true'
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add data/reminder-state.json
+          if git diff --cached --quiet; then
+            echo "提醒状态无变化，跳过提交"
+          else
+            git commit -m "chore(reminder): 记录提醒送达状态 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            # sync.yml 可能正好也在推 data/*.json，撞车了就 rebase 后重试一次
+            git push || {
+              echo "推送冲突，rebase 后重试"
+              git pull --rebase --autostash
+              git push
+            }
+          fi

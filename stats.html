@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>统计 · 星河自律</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container" id="app-root">
+    <!-- 顶部胶囊导航：由 components.js 的 uiNav('stats') 注入 -->
+    <div id="nav-slot"></div>
+
+    <header class="hero hero-small">
+      <h1 class="hero-title">星河自律</h1>
+      <p class="hero-subtitle">星图 · 趋势 · 里程碑</p>
+    </header>
+
+    <div class="chip-wrap" id="chip-wrap" hidden>
+      <span class="offline-chip" id="offline-chip"></span>
+    </div>
+
+    <!-- 总览四宫格 -->
+    <section class="card">
+      <h2 class="card-title">🌌 总览</h2>
+      <div class="stat-grid">
+        <div class="stat-tile theme-gold">
+          <span class="stat-value" id="stat-streak">0</span>
+          <span class="stat-label">当前连续</span>
+        </div>
+        <div class="stat-tile theme-amber">
+          <span class="stat-value" id="stat-best">0</span>
+          <span class="stat-label">最佳连续</span>
+        </div>
+        <div class="stat-tile theme-teal">
+          <span class="stat-value" id="stat-days">0</span>
+          <span class="stat-label">有记录天数</span>
+        </div>
+        <div class="stat-tile theme-violet">
+          <span class="stat-value" id="stat-total">0</span>
+          <span class="stat-label">累计触达</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 全年星图 -->
+    <section class="card">
+      <div class="card-head">
+        <h2 class="card-title">✨ 全年星图</h2>
+        <select id="hm-source" class="input input-inline" aria-label="星图数据来源">
+          <option value="all">全部来源</option>
+          <option value="auto">仅提醒送达</option>
+          <option value="manual">仅手动确认</option>
+        </select>
+      </div>
+      <div id="heatmap-year"><!-- uiHeatmap 注入 --></div>
+      <p class="setting-note" id="heatmap-summary">—</p>
+    </section>
+
+    <!-- 活跃趋势 -->
+    <section class="card">
+      <div class="card-head">
+        <h2 class="card-title">📈 活跃趋势</h2>
+        <select id="trend-range" class="input input-inline" aria-label="趋势时间范围">
+          <option value="30">近 30 天</option>
+          <option value="90">近 90 天</option>
+          <option value="180">近 180 天</option>
+        </select>
+      </div>
+      <div id="trend-chart"><!-- uiSparkline 注入 --></div>
+    </section>
+
+    <!-- 各计划完成率 -->
+    <section class="card">
+      <h2 class="card-title">🎯 计划完成率（近 30 天）</h2>
+      <div class="rate-list" id="rate-list"><!-- app3.js 渲染 --></div>
+      <div id="rate-empty" hidden><!-- uiEmpty 注入 --></div>
+    </section>
+
+    <!-- 里程碑徽章 -->
+    <section class="card">
+      <h2 class="card-title">🏅 里程碑</h2>
+      <div id="badge-grid"><!-- uiBadgeGrid 注入 --></div>
+    </section>
+
+    <!-- 频率分布 -->
+    <section class="card">
+      <h2 class="card-title">🧭 频率分布</h2>
+      <div id="freq-dist"><!-- app3.js 渲染 --></div>
+      <div class="freq-legend" id="freq-legend"></div>
+    </section>
+
+    <footer class="footer">
+      <p>星河自律 · RUN-form · 青 = 提醒送达，金 = 手动确认</p>
+    </footer>
+  </main>
+
+  <!-- 全局 toast 提示容器 -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- ⚠️ 加载顺序固定：store.js → components.js → app3.js -->
+  <script src="store.js"></script>
+  <script src="components.js"></script>
+  <script src="app3.js"></script>
+</body>
+</html>

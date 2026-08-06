@@ -1,0 +1,347 @@
+classDiagram
+    direction TB
+
+    %% ==================== 数据模型 ====================
+
+    class Plan {
+        +string id
+        +string name
+        +string freq
+        +string time
+        +number day
+        +boolean enabled
+        +string icon
+        +string color
+        +string desc
+        +number createdAt
+    }
+    note for Plan "v2 字段：id name freq time day enabled\nv3 新增：icon color desc createdAt\nloadPlans() 读时补全，双向兼容"
+
+    class Checkin {
+        +string id
+        +string planId
+        +string planName
+        +number ts
+        +string note
+        +string planIcon
+        +string source
+    }
+    note for Checkin "source: 'manual' | 'auto'\nplanIcon 为快照，计划删除后台账仍可显示"
+
+    class ReminderState {
+        +Object sent
+        +number updatedAt
+        +key_format "YYYY-MM-DD|planId"
+        +value_format epoch_seconds
+    }
+    note for ReminderState "data/reminder-state.json\n仅 dingtalk-reminder.yml 写入\n前端同源 fetch 只读\n保留 180 天，超期 GC"
+
+    class Prefs {
+        +boolean showManualCheckin
+        +string heatmapSource
+        +boolean reduceMotion
+    }
+
+    %% ==================== 计算结果值对象 ====================
+
+    class NextReminderInfo {
+        +number ts
+        +string dateKey
+        +string human
+        +number diffMs
+        +boolean isToday
+    }
+
+    class StreakInfo {
+        +number current
+        +number best
+        +string unit
+        +string lastDate
+    }
+
+    class RateInfo {
+        +number done
+        +number expected
+        +number missed
+        +number rate
+    }
+
+    class HeatmapCell {
+        +string date
+        +number ts
+        +number count
+        +number level
+        +number manual
+        +number auto
+        +number col
+        +number row
+    }
+
+    class HeatmapData {
+        +HeatmapCell[] cells
+        +number weeks
+        +number max
+        +number total
+        +number activeDays
+        +string startDate
+        +string endDate
+        +Array monthTicks
+    }
+
+    class PlanView {
+        +number dueTs
+        +string dueTime
+        +boolean passed
+        +boolean done
+        +NextReminderInfo next
+        +Theme theme
+    }
+    note for PlanView "todayPlans() 返回：Plan 展开 + 运行时状态"
+
+    class Theme {
+        +string key
+        +string label
+        +string from
+        +string to
+        +string glow
+    }
+
+    class OverviewStats {
+        +number planTotal
+        +number planActive
+        +number todayDue
+        +number todayDone
+        +number streak
+        +number streakBest
+        +number rate30
+        +number totalActive
+        +Object nextUp
+    }
+
+    %% ==================== 数据层 store.js ====================
+
+    class Store {
+        <<module store.js>>
+        +PLAN_KEY string$
+        +CHECKIN_KEY string$
+        +TOKEN_KEY string$
+        +PREFS_KEY string$
+        +REMINDER_STATE_URL string$
+        +REMINDER_CACHE_KEY string$
+        +REPO_DISPATCH_URL string$
+        +AUTO_SYNC_DELAY number$
+        +FREQ_LABELS Object$
+        +WEEKDAY_LABELS Array$
+        +COLOR_THEMES Object$
+        +COLOR_KEYS Array$
+        +ICON_PRESETS Array$
+        +VAN_GOGH_QUOTES Array$
+        +HEATMAP_LEVELS Array$
+        +MILESTONES Array$
+        +GREETINGS Array$
+        --v2 工具（签名不变）--
+        +genId() string
+        +escapeHtml(str) string
+        +formatTime(ts) string
+        +showToast(msg, type) void
+        --v3 工具--
+        +hashString(str) number
+        +dateKey(input) string
+        +parseHHMM(time) Object
+        +startOfDay(input) Date
+        +daysBetween(a, b) number
+        +themeOf(plan) Theme
+        +greetingNow(date) Object
+        +randomQuote(seed) string
+        +formatCountdown(ms) string
+        --Plan CRUD（v2 兼容）--
+        +loadPlans() Plan[]
+        +savePlans(list) void
+        +addPlan(fields) Plan
+        +updatePlan(id, patch) void
+        +deletePlan(id) void
+        +togglePlan(id) void
+        +describePlan(plan) string
+        --Checkin CRUD（v2 兼容）--
+        +loadCheckins() Checkin[]
+        +saveCheckins(list) void
+        +addCheckin(planId, planName) Checkin
+        +deleteCheckin(id) void
+        +clearAll() void
+        --v3 调度计算--
+        +isPlanDueOn(plan, date) boolean
+        +nextReminder(plan, fromTs) NextReminderInfo
+        +planDueDates(plan, fromTs, toTs) string[]
+        +todayPlans() PlanView[]
+        --v3 活动与统计--
+        +loadReminderLog() Promise
+        +getReminderLog() Map
+        +buildActivityMap(opts) Map
+        +buildHeatmap(days, opts) HeatmapData
+        +computeStreak(planId) StreakInfo
+        +globalStreak() Object
+        +completionRate(planId, days) RateInfo
+        +overviewStats() OverviewStats
+        +dailyTrend(days) Array
+        +milestones() Array
+        --偏好与备份--
+        +loadPrefs() Prefs
+        +savePrefs(patch) void
+        +exportData() string
+        +importData(json, opts) Object
+        --同步（v2 兼容）--
+        +resolveToken() string
+        +dispatchSync(plans, checkins, token) Promise
+        +scheduleAutoSync() void
+        +syncToRepo() Promise
+    }
+
+    %% ==================== 组件层 components.js ====================
+
+    class Components {
+        <<module components.js>>
+        +PREFERS_REDUCED boolean$
+        +uiNav(active) string
+        +uiStarfield(container) void
+        +uiRing(opts) string
+        +uiHeatmap(data, opts) string
+        +uiSparkline(points, opts) string
+        +uiIconPicker(selected) string
+        +uiThemePicker(selected) string
+        +uiPlanCard(planView) string
+        +uiTimelineItem(planView) string
+        +uiCountUp(el, target, opts) void
+        +uiTooltip(root) void
+        +uiRevealOnLoad(root) void
+    }
+    note for Components "纯函数：入参 → HTML/SVG 字符串\n不读 localStorage、不调 store 的 load*\n内部禁止声明 $（页面脚本已占用）\n所有用户数据内部 escapeHtml"
+
+    %% ==================== 页面层 ====================
+
+    class DashboardPage {
+        <<index.html + app.js>>
+        -$ Function
+        +renderHeader() void
+        +renderNextUp() void
+        +renderOverview() void
+        +renderTimeline() void
+        +renderMiniHeatmap() void
+        +startClock() void
+        +refreshAfterFetch() void
+        +init() void
+    }
+
+    class ManagePage {
+        <<manage.html + app2.js>>
+        -$ Function
+        -editingId string
+        +syncFreqVisibility() void
+        +resetPlanForm() void
+        +fillPlanForm(plan) void
+        +renderPreview() void
+        +renderPlanGrid() void
+        +renderLedger() void
+        +handleExport() void
+        +handleImport() void
+        +init() void
+    }
+
+    class StatsPage {
+        <<stats.html + app3.js>>
+        -$ Function
+        -currentFilter string
+        +renderYearHeatmap() void
+        +renderTrend() void
+        +renderPlanRates() void
+        +renderFreqDist() void
+        +renderBadges() void
+        +init() void
+    }
+
+    %% ==================== 持久层与外部系统 ====================
+
+    class LocalStorage {
+        <<browser>>
+        +runform_plans
+        +runform_checkins
+        +runform_pat
+        +runform_prefs
+        +runform_reminder_cache
+    }
+
+    class SyncWorkflow {
+        <<sync.yml>>
+        +trigger repository_dispatch
+        +parse_list(env) list
+        +dedupe(records) list
+        +writes plans.json
+        +writes checkins.json
+    }
+
+    class ReminderWorkflow {
+        <<dingtalk-reminder.yml>>
+        +cron "*/15 * * * *"
+        +WINDOW_MIN 30
+        +RETAIN_DAYS 180
+        +matches_freq(plan, d) bool
+        +next_reminder_human(plan, dt) str
+        +build_single_md(...) str
+        +build_batch_md(...) str
+        +signed_url(webhook, secret) str
+        +send(md, title) void
+        +reads plans.json
+        +reads_writes reminder_state.json
+    }
+
+    class DingTalkBot {
+        <<external>>
+        +webhook_url
+        +hmac_sha256_sign
+        +msgtype markdown
+    }
+
+    class GitHubAPI {
+        <<external>>
+        +POST /repos/.../dispatches
+        +event_type sync-checkins
+    }
+
+    %% ==================== 关系 ====================
+
+    Store "1" --> "*" Plan : 读写
+    Store "1" --> "*" Checkin : 读写
+    Store "1" ..> Prefs : 读写
+    Store "1" ..> ReminderState : 只读 fetch
+    Store ..> NextReminderInfo : 产出
+    Store ..> StreakInfo : 产出
+    Store ..> RateInfo : 产出
+    Store ..> HeatmapData : 产出
+    Store ..> OverviewStats : 产出
+    Store ..> Theme : 产出
+    Store ..> PlanView : 产出
+    Store --> LocalStorage : 持久化
+
+    HeatmapData "1" *-- "*" HeatmapCell : 包含
+    PlanView --|> Plan : 展开自
+    PlanView --> NextReminderInfo : 持有
+    PlanView --> Theme : 持有
+
+    Components ..> HeatmapData : 消费
+    Components ..> PlanView : 消费
+    Components ..> Theme : 消费
+
+    DashboardPage --> Store : 调用
+    DashboardPage --> Components : 调用
+    ManagePage --> Store : 调用
+    ManagePage --> Components : 调用
+    StatsPage --> Store : 调用
+    StatsPage --> Components : 调用
+
+    Store ..> GitHubAPI : dispatchSync
+    GitHubAPI ..> SyncWorkflow : 触发
+    SyncWorkflow ..> Plan : 全量覆盖写入 plans.json
+    SyncWorkflow ..> Checkin : 全量覆盖写入 checkins.json
+
+    ReminderWorkflow ..> Plan : 读 plans.json
+    ReminderWorkflow --> ReminderState : 独占读写
+    ReminderWorkflow ..> DingTalkBot : POST 签名消息

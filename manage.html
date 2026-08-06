@@ -3,37 +3,62 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>管理 · 不按惯例</title>
+  <meta name="color-scheme" content="dark" />
+  <title>管理 · 星河自律</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="container">
-    <!-- 顶部标题区 -->
+  <main class="container" id="app-root">
+    <!-- 顶部胶囊导航：由 components.js 的 uiNav('manage') 注入 -->
+    <div id="nav-slot"></div>
+
     <header class="hero hero-small">
-      <h1 class="hero-title">管理</h1>
-      <p class="hero-subtitle">计划 · 台账 · 同步</p>
+      <h1 class="hero-title">星河自律</h1>
+      <p class="hero-subtitle">计划 · 偏好 · 备份 · 同步</p>
     </header>
 
-    <!-- 打卡计划：增删改查 + 启用开关 -->
+    <!-- 计划表单：新增 / 编辑共用一套（v2 全部 id 保留） -->
     <section class="card" id="plan-card">
-      <h2 class="card-title">打卡计划</h2>
+      <h2 class="card-title">🛠 计划</h2>
 
       <form id="plan-form" class="checkin-form">
         <label for="plan-name" class="field-label">名称</label>
         <input type="text" id="plan-name" class="input" placeholder="如：跑步" autocomplete="off" />
 
-        <label for="plan-freq" class="field-label field-label-gap">频率</label>
-        <select id="plan-freq" class="input">
-          <option value="daily">每日</option>
-          <option value="weekly">每周</option>
-          <option value="monthly">每月</option>
-        </select>
+        <label class="field-label field-label-gap">图标</label>
+        <div id="icon-picker-slot"><!-- uiIconPicker 注入 --></div>
 
-        <label for="plan-time" class="field-label field-label-gap">时间</label>
-        <input type="time" id="plan-time" class="input" value="08:00" />
+        <label class="field-label field-label-gap">配色</label>
+        <div id="theme-picker-slot"><!-- uiThemePicker 注入 --></div>
+
+        <label for="plan-desc" class="field-label field-label-gap">一句话说明（可选）</label>
+        <input
+          type="text"
+          id="plan-desc"
+          class="input"
+          maxlength="60"
+          placeholder="如：五公里，慢一点也没关系"
+          autocomplete="off"
+        />
+
+        <div class="field-row field-label-gap">
+          <div>
+            <label for="plan-freq" class="field-label">频率</label>
+            <select id="plan-freq" class="input">
+              <option value="daily">每日</option>
+              <option value="weekly">每周</option>
+              <option value="monthly">每月</option>
+            </select>
+          </div>
+          <div>
+            <label for="plan-time" class="field-label">时间</label>
+            <input type="time" id="plan-time" class="input" value="08:00" />
+          </div>
+        </div>
 
         <div id="weekday-wrap" hidden>
           <label for="plan-weekday" class="field-label field-label-gap">星期</label>
+          <!-- ⚠️ value 是 Python 口径：周一 = 0，与 data/plans.json、提醒脚本完全一致 -->
           <select id="plan-weekday" class="input">
             <option value="0">周一</option>
             <option value="1">周二</option>
@@ -60,34 +85,98 @@
           <a href="#" id="plan-cancel" class="link-cancel" hidden>取消</a>
         </div>
       </form>
+    </section>
 
-      <div id="plan-list"><!-- 由 app2.js 动态渲染 --></div>
+    <!-- 计划列表：卡片网格 -->
+    <section class="card">
+      <h2 class="card-title">🌠 我的计划</h2>
+      <div class="plan-grid" id="plan-list"><!-- uiPlanCard 注入 --></div>
       <p class="empty-hint" id="plan-list-empty" hidden>还没有任何计划，先在上方添加一个吧。</p>
+    </section>
+
+    <!-- 界面偏好 -->
+    <section class="card" id="prefs-card">
+      <h2 class="card-title">🎛 界面偏好</h2>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="pref-manual" checked />
+        <span>在仪表盘显示「标记完成」按钮</span>
+      </label>
+      <p class="setting-note">
+        关掉后仪表盘只展示提醒送达情况，不再提供手动确认入口（打卡台账仍然保留）。
+      </p>
+
+      <label for="pref-heatmap-source" class="field-label field-label-gap">星图数据来源</label>
+      <select id="pref-heatmap-source" class="input">
+        <option value="all">全部来源（提醒送达 + 手动确认）</option>
+        <option value="auto">仅提醒送达</option>
+        <option value="manual">仅手动确认</option>
+      </select>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="pref-reduce-motion" />
+        <span>减少动效（星点闪烁 / 进场动画 / 数字滚动全部关闭）</span>
+      </label>
+      <p class="setting-note">
+        系统若已开启「减少动态效果」，无论此处怎么设置都会自动降级，不会有动画。
+      </p>
+    </section>
+
+    <!-- 数据备份 -->
+    <section class="card" id="backup-card">
+      <h2 class="card-title">💾 备份与恢复</h2>
+      <p class="setting-note">
+        导出内容包含 <strong>计划 + 台账 + 偏好</strong>，
+        <strong>不含 Personal Access Token</strong>，可以放心保存或转移到别的浏览器。
+      </p>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-vg-teal" id="export-btn">导出备份 JSON</button>
+      </div>
+
+      <label for="import-file" class="field-label field-label-gap">选择备份文件</label>
+      <input type="file" id="import-file" class="input" accept="application/json,.json" />
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="import-merge" checked />
+        <span>合并导入（按 id 合并，不勾选＝整体覆盖本地数据）</span>
+      </label>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-vg-blue" id="import-btn">导入</button>
+      </div>
     </section>
 
     <!-- 全部台账 -->
     <section class="card" id="ledger-card">
-      <h2 class="card-title">全部台账</h2>
-      <div class="table-wrap">
-        <table class="ledger-table">
-          <thead>
-            <tr>
-              <th>序号</th>
-              <th>日期时间</th>
-              <th>计划</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="ledger-body"><!-- 由 app2.js 动态渲染 --></tbody>
-        </table>
-        <p class="empty-hint" id="ledger-empty" hidden>还没有打卡记录，回首页打一条吧。</p>
-      </div>
-      <button type="button" class="btn btn-vg-danger" id="clear-all-btn">清空全部记录</button>
+      <details class="collapsible">
+        <summary>📒 全部台账</summary>
+        <div class="table-wrap">
+          <table class="ledger-table">
+            <thead>
+              <tr>
+                <th>序号</th>
+                <th>日期时间</th>
+                <th>计划</th>
+                <th>来源</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="ledger-body"><!-- 由 app2.js 动态渲染 --></tbody>
+          </table>
+          <p class="empty-hint" id="ledger-empty" hidden>还没有打卡记录，去仪表盘标记一条吧。</p>
+        </div>
+        <button type="button" class="btn btn-vg-danger" id="clear-all-btn">清空全部记录</button>
+      </details>
     </section>
 
-    <!-- 同步到 GitHub（Token 只存本机浏览器） -->
+    <!-- 同步到 GitHub（Token 只存本机浏览器；v2 id 保留） -->
     <section class="card" id="sync-card">
-      <h2 class="card-title">同步到 GitHub 仓库</h2>
+      <h2 class="card-title">🔄 同步到 GitHub 仓库</h2>
+      <p class="notice-warn">
+        ⚠️ 提醒脚本读的是仓库里的 <code>data/plans.json</code>，不是你浏览器里的数据。
+        <strong>新增 / 修改 / 删除计划后，务必同步一次</strong>，否则钉钉提醒不会变。
+      </p>
       <p class="setting-note">
         Token 仅存本机浏览器 localStorage，<strong>不发往第三方</strong>；填好后会自动同步计划与台账。
       </p>
@@ -103,25 +192,24 @@
         <button type="button" class="btn btn-vg-blue" id="sync-btn">同步到仓库</button>
       </div>
       <p class="setting-note">
-        设置 / 修改计划后，请点一次<strong>「同步到仓库」</strong>，否则钉钉提醒不会生效
-        （提醒读取仓库里的 <code>data/plans.json</code>）。
-      </p>
-      <p class="setting-note">
         401 排查：Classic Token 需勾选 <code>repo</code>；Fine-grained Token 需授予
-        <code>Contents: read &amp; write</code> 与 <code>Metadata: read</code>。
+        <code>Contents: read &amp; write</code>、<code>Metadata: read</code> 与
+        <code>Administration: read</code>。
       </p>
     </section>
 
     <footer class="footer">
-      <a id="back-btn" class="btn btn-vg-blue" href="index.html">返回首页</a>
-      <p>不按惯例 · RUN-form · 数据存于本地浏览器</p>
+      <a id="back-btn" class="btn btn-vg-blue" href="index.html">返回仪表盘</a>
+      <p>星河自律 · RUN-form · 数据存于本地浏览器</p>
     </footer>
   </main>
 
   <!-- 全局 toast 提示容器 -->
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+  <!-- ⚠️ 加载顺序固定：store.js → components.js → app2.js -->
   <script src="store.js"></script>
+  <script src="components.js"></script>
   <script src="app2.js"></script>
 </body>
 </html>
