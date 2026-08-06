@@ -1,0 +1,76 @@
+name: 钉钉打卡提醒
+
+# 触发：每天 14:00 UTC（= 北京时间 22:00，UTC+8），外加手动触发便于测试
+on:
+  schedule:
+    - cron: "0 14 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 发送钉钉提醒（含加签）
+        # webhook 与 secret 均从 GitHub Secrets 读取，绝不写死真实值
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+        run: |
+          python3 - <<'PY'
+          import time, hmac, hashlib, base64, urllib.parse, json, os, subprocess
+
+          webhook = os.environ["DINGTALK_WEBHOOK"]
+          secret = os.environ["DINGTALK_SECRET"]
+
+          # 1) 计算钉钉加签
+          timestamp = str(round(time.time() * 1000))
+          string_to_sign = f"{timestamp}\n{secret}"
+          sign = base64.b64encode(
+              hmac.new(
+                  secret.encode("utf-8"),
+                  string_to_sign.encode("utf-8"),
+                  hashlib.sha256,
+              ).digest()
+          ).decode("utf-8")
+          sign = urllib.parse.quote_plus(sign)
+
+          # 2) 拼接到 webhook
+          url = f"{webhook}&timestamp={timestamp}&sign={sign}"
+
+          # 3) 构造 markdown 消息
+          payload = {
+              "msgtype": "markdown",
+              "markdown": {
+                  "title": "不按惯例 · 打卡提醒",
+                  "text": (
+                      "## 不按惯例 · 打卡提醒\n"
+                      "> 北京时间 22:00 啦，今天你按惯例了吗？\n"
+                      "> 点开链接打个卡 👉 https://chenliguan42057.github.io/RUN-form/"
+                  ),
+              },
+          }
+
+          # 4) 用 curl 发送
+          data = json.dumps(payload, ensure_ascii=False)
+          cmd = [
+              "curl", "-s", "-X", "POST",
+              "-H", "Content-Type: application/json",
+              "-d", data,
+              url,
+          ]
+          result = subprocess.run(cmd, capture_output=True, text=True)
+          # curl 本身失败（网络/参数错误）必须让 workflow 变红
+          if result.returncode != 0:
+              print("curl 失败:", result.stderr)
+              raise SystemExit(1)
+          # 钉钉业务错误（如签名失效、token 过期）HTTP 仍是 200，需解析响应体
+          try:
+              resp = json.loads(result.stdout or "{}")
+          except json.JSONDecodeError:
+              print("钉钉响应解析失败:", result.stdout)
+              raise SystemExit(1)
+          if resp.get("errcode") not in (0, None):
+              print("钉钉返回错误:", resp)
+              raise SystemExit(1)
+          print("钉钉提醒发送成功")
+          PY

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>不按惯例 · 个人打卡</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container">
+    <!-- 顶部标题区 -->
+    <header class="hero">
+      <h1 class="hero-title">不按惯例</h1>
+      <p class="hero-subtitle">今天，你按惯例了吗？</p>
+    </header>
+
+    <!-- 打卡表单卡片 -->
+    <section class="card" id="checkin-card">
+      <h2 class="card-title">今日打卡</h2>
+      <form id="checkin-form" class="checkin-form">
+        <label for="checkin-content" class="field-label">打卡内容 / 今日记录</label>
+        <textarea
+          id="checkin-content"
+          name="content"
+          class="textarea"
+          rows="4"
+          placeholder="写点什么吧……"
+        ></textarea>
+        <button type="submit" class="btn btn-primary" id="checkin-btn">打卡</button>
+      </form>
+    </section>
+
+    <!-- 打卡台账卡片 -->
+    <section class="card" id="ledger-card">
+      <h2 class="card-title">打卡台账</h2>
+      <div class="table-wrap">
+        <table class="ledger-table">
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>日期时间</th>
+              <th>内容</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="ledger-body"><!-- 由 app.js 动态渲染 --></tbody>
+        </table>
+        <p class="empty-hint" id="empty-hint" hidden>还没有打卡记录，从上方写第一条吧。</p>
+      </div>
+    </section>
+
+    <!-- 设置卡片 -->
+    <section class="card" id="settings-card">
+      <h2 class="card-title">设置</h2>
+      <div class="setting-row">
+        <span class="setting-label">每日提醒时间</span>
+        <span class="setting-value">22:00（北京时间）</span>
+      </div>
+      <p class="setting-note">
+        提醒通过 GitHub Actions 定时向钉钉推送，触发时间写死在
+        <code>.github/workflows/dingtalk-reminder.yml</code> 的 cron 中，想改时间改那里即可。
+      </p>
+      <button type="button" class="btn btn-danger" id="clear-all-btn">清空全部记录</button>
+    </section>
+
+    <!-- 同步到 GitHub 卡片（安全设计：Token 仅存会话） -->
+    <section class="card" id="sync-card">
+      <h2 class="card-title">同步到 GitHub 仓库</h2>
+      <p class="setting-note">
+        Token 仅保存在浏览器会话（sessionStorage），<strong>不会被写入任何文件，也不会被提交</strong>。
+      </p>
+      <div class="sync-form">
+        <label for="pat-input" class="field-label">Personal Access Token</label>
+        <input
+          type="password"
+          id="pat-input"
+          class="input"
+          placeholder="ghp_xxx 或 github_pat_xxx"
+          autocomplete="off"
+        />
+        <button type="button" class="btn btn-primary" id="sync-btn">同步到仓库</button>
+      </div>
+      <p class="setting-note">
+        点击后会向仓库发送 <code>repository_dispatch</code> 事件，触发
+        <code>sync.yml</code> 把当前台账写入 <code>data/checkins.json</code>。
+      </p>
+    </section>
+
+    <footer class="footer">
+      <p>不按惯例 · RUN-form · 数据存于本地浏览器</p>
+    </footer>
+  </main>
+
+  <!-- 全局 toast 提示容器 -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
