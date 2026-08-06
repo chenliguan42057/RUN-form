@@ -1,6 +1,7 @@
 name: 同步打卡数据
 
-# 触发：仓库收到 repository_dispatch 事件（前端点击「同步到仓库」触发）
+# 触发：仓库收到 repository_dispatch 事件
+# （前端打卡 / 删除 / 清空后自动同步，或手动点击「同步到仓库」按钮）
 on:
   repository_dispatch:
     types: [sync-checkins]
@@ -19,15 +20,18 @@ jobs:
           # 使用 GITHUB_TOKEN 提交，无需用户 secret
           persist-credentials: true
 
-      - name: 合并并写入台账
+      - name: 全量覆盖写入台账
         # client_payload.checkins 由前端通过 repository_dispatch 传入
+        # 语义：浏览器端台账是唯一真源——前端推什么，远端就是什么。
+        # 因此这里【整体覆盖】data/checkins.json，不再以远端已有内容为基准累加，
+        # 否则前端的删除 / 清空永远同步不到仓库（append-only 只增不减）。
         env:
           CHECKINS_JSON: ${{ toJson(github.event.client_payload.checkins) }}
         run: |
           python3 - <<'PY'
           import os, json
 
-          # 解析传入的台账数组
+          # 解析传入的台账数组；解析失败或类型不对时退化为空数组
           raw = os.environ.get("CHECKINS_JSON", "[]")
           try:
               incoming = json.loads(raw)
@@ -36,39 +40,37 @@ jobs:
           if not isinstance(incoming, list):
               incoming = []
 
+          # 只保留合法的对象记录，过滤掉脏数据
+          records = [item for item in incoming if isinstance(item, dict)]
+
+          # 按 id 去重（无 id 的旧记录退化为 ts），防止 payload 内部意外重复；
+          # 保留首次出现的那条，保持前端顺序语义
+          def key_of(item):
+              return item.get("id") or item.get("ts")
+
+          deduped = []
+          seen = set()
+          for item in records:
+              k = key_of(item)
+              if k in seen:
+                  continue
+              seen.add(k)
+              deduped.append(item)
+
+          # 按时间升序保存（便于阅读；前端展示仍按倒序）
+          deduped.sort(key=lambda x: x.get("ts", 0))
+
           # 确保 data/ 目录存在
           data_dir = "data"
           os.makedirs(data_dir, exist_ok=True)
           path = os.path.join(data_dir, "checkins.json")
 
-          # 读取已有台账
-          existing = []
-          if os.path.exists(path):
-              try:
-                  with open(path, "r", encoding="utf-8") as f:
-                      existing = json.load(f)
-                  if not isinstance(existing, list):
-                      existing = []
-              except Exception:
-                  existing = []
-
-          # 按 id 去重合并（无 id 的旧记录退化为 ts），避免同 ts 静默丢记录
-          def key_of(item):
-              return item.get("id") or item.get("ts")
-
-          seen = {key_of(item) for item in existing if isinstance(item, dict)}
-          for item in incoming:
-              if isinstance(item, dict) and key_of(item) not in seen:
-                  existing.append(item)
-                  seen.add(key_of(item))
-
-          # 按时间升序保存（便于阅读；前端展示仍按倒序）
-          existing.sort(key=lambda x: x.get("ts", 0))
-
+          # 整体覆盖写入：删除过的记录不会残留，清空则写入空数组
           with open(path, "w", encoding="utf-8") as f:
-              json.dump(existing, f, ensure_ascii=False, indent=2)
+              json.dump(deduped, f, ensure_ascii=False, indent=2)
 
-          print(f"合并后共 {len(existing)} 条记录")
+          dropped = len(records) - len(deduped)
+          print(f"已全量覆盖写入 {len(deduped)} 条记录（去重丢弃 {dropped} 条）")
           PY
 
       - name: 提交并推送

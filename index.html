@@ -63,11 +63,11 @@
       <button type="button" class="btn btn-danger" id="clear-all-btn">清空全部记录</button>
     </section>
 
-    <!-- 同步到 GitHub 卡片（安全设计：Token 仅存会话） -->
+    <!-- 同步到 GitHub 卡片（安全设计：Token 仅存本机浏览器，不入库不入日志） -->
     <section class="card" id="sync-card">
       <h2 class="card-title">同步到 GitHub 仓库</h2>
       <p class="setting-note">
-        Token 仅保存在浏览器会话（sessionStorage），<strong>不会被写入任何文件，也不会被提交</strong>。
+        Token 保存在本机浏览器（localStorage），<strong>不会被写入任何文件，也不会被提交</strong>。
       </p>
       <div class="sync-form">
         <label for="pat-input" class="field-label">Personal Access Token</label>
@@ -80,8 +80,12 @@
         />
         <button type="button" class="btn btn-primary" id="sync-btn">同步到仓库</button>
       </div>
+      <p class="setting-note" style="font-size:12px;opacity:.7">
+        ⚠️ Token 仅保存在本机浏览器（localStorage），只发给 GitHub。请勿在公共/共享电脑上保存。
+      </p>
       <p class="setting-note">
-        点击后会向仓库发送 <code>repository_dispatch</code> 事件，触发
+        填好 Token 后，打卡 / 删除 / 清空会<strong>自动同步</strong>；也可点击按钮手动触发。
+        同步会向仓库发送 <code>repository_dispatch</code> 事件，触发
         <code>sync.yml</code> 把当前台账写入 <code>data/checkins.json</code>。
       </p>
     </section>

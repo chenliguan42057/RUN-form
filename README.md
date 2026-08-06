@@ -88,17 +88,34 @@ GitHub Actions 的 cron 使用 **UTC** 时间，北京时间 = UTC + 8 小时。
 
 1. 在页面「同步到 GitHub 仓库」卡片里，粘贴你的 **Personal Access Token**
    （需要有该仓库的 `repo` 权限；推荐使用 Fine-grained PAT 并只授权本仓库）。
-2. 点击 **同步到仓库**。
+2. 填好之后就不用管了——**打卡 / 删除 / 清空都会自动同步**；也可以随时点 **同步到仓库** 手动触发一次。
 
-行为说明：
+### Token 的存放
 
-- Token **只保存在浏览器会话（sessionStorage）**，关闭标签页即清除，**不会被写入文件或提交**。
-- 点击后，前端向
-  `https://api.github.com/repos/chenliguan42057/RUN-form/dispatches`
-  发送 `repository_dispatch` 事件（`event_type: sync-checkins`，并把当前台账作为
+- Token 保存在**本机浏览器的 localStorage**，刷新页面、关闭标签页都不会丢，下次打开自动回填，
+  不用每次重新粘贴。
+- 它**只会通过 `Authorization` 请求头发给 GitHub**，不会写进任何文件、不会被提交、不会出现在日志里。
+- ⚠️ 正因为是持久保存，**请勿在公共 / 共享电脑上保存 Token**。想清除的话，在浏览器开发者工具的
+  Application → Local Storage 里删掉 `runform_pat` 即可。
+
+### 自动同步
+
+- 触发时机：打卡成功、删除一条、清空全部，这三个动作之后都会自动同步。
+- **防抖 800ms**：连续操作（比如一口气删好几条）只会在最后一次操作后合并成一次请求，不会刷屏。
+- 自动同步是静默的：成功不打扰你，**只有失败才会弹错误 toast**。手动点按钮则成功 / 失败都有提示。
+- 没填 Token 时自动同步会直接跳过，不会报错——纯本地用也完全没问题。
+
+### 同步链路与覆盖语义
+
+- 前端向 `https://api.github.com/repos/chenliguan42057/RUN-form/dispatches`
+  发送 `repository_dispatch` 事件（`event_type: sync-checkins`，把当前台账整份作为
   `client_payload.checkins` 传过去）。
-- 仓库里的 `sync.yml` 收到事件后，把台账合并去重并写入 `data/checkins.json`，然后自动提交。
-- 仅触发，不做复杂逻辑；成功 / 失败都会弹出 toast 提示。
+- 仓库里的 `sync.yml` 收到事件后，把这份台账**全量覆盖写入** `data/checkins.json`，然后自动提交。
+- ⚠️ **浏览器端的台账是唯一真源，远端是它的镜像**：
+  在页面上删掉一条，同步后仓库里那条也会消失；点「清空全部记录」，仓库里的
+  `data/checkins.json` 会被写成空数组 `[]`。这不是 bug，是刻意设计——
+  否则删除和清空永远同步不出去。**需要留底就先备份 `data/checkins.json`。**
+- 换句话说：**远端不做累加**。如果你在两台设备上各自打卡，后同步的那台会覆盖掉先同步的内容。
 
 ---
 
