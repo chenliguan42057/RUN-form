@@ -310,7 +310,10 @@ jobs:
               raise SystemExit(0)
 
           # ---- 4. 组装消息 ----
-          quote = pick_quote(today_key)
+          # 语录按「计划所属日」取，而非调度日：避免 23:55 计划跨天在次日 00:07 推送时，
+          # 钉钉语录与前端该计划当日（如 08-06）页面对不上（对齐本文件 QUOTES 一致性约定）。
+          # 批量消息可能含不同 day_key，取 pending[0] 所属日作为本次消息的语录种子。
+          quote = pick_quote(pending[0][0].split("|")[0])
           time_label = now.strftime("%H:%M")
 
           def plan_line(plan):
