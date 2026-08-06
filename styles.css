@@ -171,8 +171,134 @@ body::before {
   cursor: not-allowed;
 }
 .checkin-form .btn,
-.sync-form .btn {
+.sync-form .btn,
+.plan-form .btn {
   margin-top: 14px;
+}
+
+/* ---- 梵高星空海洋配色按钮（纯静态渐变，无任何动画） ----
+   与 .btn 基类叠加使用：class="btn btn-vg-gold" */
+.btn-vg-gold {
+  background: linear-gradient(135deg, #f2c14e, #e0a82e);
+  color: #1b2a4a;
+}
+.btn-vg-gold:hover {
+  background: linear-gradient(135deg, #e6b23e, #cf9a26);
+}
+.btn-vg-blue {
+  background: linear-gradient(135deg, #2a5d9c, #1b3a6b);
+  color: #fff;
+}
+.btn-vg-blue:hover {
+  background: linear-gradient(135deg, #1b3a6b, #142c52);
+}
+.btn-vg-teal {
+  background: linear-gradient(135deg, #2a9d8f, #1d6f74);
+  color: #fff;
+}
+.btn-vg-teal:hover {
+  background: linear-gradient(135deg, #22867a, #175a5e);
+}
+.btn-vg-danger {
+  background: linear-gradient(135deg, #9b2226, #6a040f);
+  color: #fff;
+}
+.btn-vg-danger:hover {
+  background: linear-gradient(135deg, #7f1c1f, #55030c);
+}
+/* <a class="btn"> 也要看起来像按钮：去掉下划线、垂直居中 */
+a.btn {
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+/* ---- 分隔线 / 次级标题 ---- */
+.divider {
+  height: 1px;
+  background: var(--border);
+  border: 0;
+  margin: 16px 0;
+}
+.card-subtitle {
+  margin: 18px 0 10px;
+  font-size: 1.05rem;
+  color: var(--muted-color);
+}
+
+/* ---- 计划 / 今日记录行 ---- */
+.plan-row,
+#plan-list .plan-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.plan-row:last-child,
+#plan-list .plan-item:last-child {
+  border-bottom: 0;
+}
+.plan-meta {
+  color: var(--muted-color);
+  font-size: 0.88rem;
+}
+.plan-info {
+  min-width: 0;
+  word-break: break-word;
+}
+.plan-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ---- 小尺寸操作按钮（编辑） ---- */
+.mini-btn {
+  background: transparent;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.mini-btn:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ---- 复选框行 / 表单操作区 ---- */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-weight: 600;
+  color: var(--muted-color);
+  cursor: pointer;
+}
+.checkbox-inline {
+  margin-top: 0;
+  font-weight: 400;
+  font-size: 0.88rem;
+}
+.field-label-gap {
+  margin-top: 14px;
+}
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.link-cancel {
+  color: var(--muted-color);
+  font-size: 0.9rem;
+  margin-top: 14px;
+}
+.hero-small .hero-title {
+  font-size: 1.9rem;
 }
 
 /* ---- 设置区 ---- */
@@ -282,6 +408,9 @@ body::before {
   font-size: 0.85rem;
   margin-top: 8px;
 }
+.footer .btn {
+  margin-bottom: 12px;
+}
 
 /* ---- 响应式：手机端收窄 ---- */
 @media (max-width: 480px) {
@@ -293,5 +422,15 @@ body::before {
   }
   .container {
     padding: 24px 12px 40px;
+  }
+  /* 计划行在窄屏换行，避免操作按钮被挤出屏幕 */
+  .plan-row,
+  #plan-list .plan-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .plan-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }

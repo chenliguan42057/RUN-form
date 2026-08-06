@@ -1,76 +1,101 @@
 name: 钉钉打卡提醒
 
-# 触发：每天 14:00 UTC（= 北京时间 22:00，UTC+8），外加手动触发便于测试
+# 触发：每小时整点跑一次（UTC），脚本内部换算北京时间后只推「本小时到期」的计划；
+# 外加手动触发便于测试。
 on:
   schedule:
-    - cron: "0 14 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch: {}
 
 jobs:
   reminder:
     runs-on: ubuntu-latest
     steps:
-      - name: 发送钉钉提醒（含加签）
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 按计划发送钉钉提醒（含加签）
         # webhook 与 secret 均从 GitHub Secrets 读取，绝不写死真实值
         env:
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
         run: |
           python3 - <<'PY'
-          import time, hmac, hashlib, base64, urllib.parse, json, os, subprocess
+          import time, hmac, hashlib, base64, urllib.parse, json, os, subprocess, datetime, calendar
 
           webhook = os.environ["DINGTALK_WEBHOOK"]
           secret = os.environ["DINGTALK_SECRET"]
 
-          # 1) 计算钉钉加签
           timestamp = str(round(time.time() * 1000))
           string_to_sign = f"{timestamp}\n{secret}"
-          sign = base64.b64encode(
-              hmac.new(
-                  secret.encode("utf-8"),
-                  string_to_sign.encode("utf-8"),
-                  hashlib.sha256,
-              ).digest()
-          ).decode("utf-8")
+          sign = base64.b64encode(hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256).digest()).decode("utf-8")
           sign = urllib.parse.quote_plus(sign)
-
-          # 2) 拼接到 webhook
           url = f"{webhook}&timestamp={timestamp}&sign={sign}"
 
-          # 3) 构造 markdown 消息
+          # 北京时间
+          bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+          now_hh = f"{bj.hour:02d}"
+
+          due = []
+          try:
+              with open("data/plans.json", encoding="utf-8") as f:
+                  plans = json.load(f)
+          except Exception:
+              plans = []
+          if not isinstance(plans, list):
+              plans = []
+
+          for p in plans:
+              if not p.get("enabled"):
+                  continue
+              t = p.get("time", "")
+              if not isinstance(t, str) or not t.startswith(now_hh + ":"):
+                  continue
+              freq = p.get("freq")
+
+              # 统一把 day 解析成整数；键缺失 / 值为 null / 非数字时兜底为 0，避免 workflow 变红
+              try:
+                  day = int(p.get("day", 0) or 0)
+              except (TypeError, ValueError):
+                  day = 0
+
+              if freq == "daily":
+                  due.append(p)
+              elif freq == "weekly":
+                  if bj.weekday() == day:
+                      due.append(p)
+              elif freq == "monthly":
+                  # 短月兜底：2 月 31 日这类不存在的日期按当月最后一天判定，避免静默漏推
+                  last_day = calendar.monthrange(bj.year, bj.month)[1]
+                  if bj.day == min(day, last_day):
+                      due.append(p)
+
+          if not due:
+              print("本小时无到期计划，跳过推送")
+              raise SystemExit(0)
+
+          if len(due) == 1:
+              text = f"**{due[0]['name']}** 到时间啦，去打个卡吧 👉 https://chenliguan42057.github.io/RUN-form/"
+          else:
+              names = "、".join(p["name"] for p in due)
+              text = f"本小时有 {len(due)} 个计划到时间啦（{names}），去打个卡吧 👉 https://chenliguan42057.github.io/RUN-form/"
+
           payload = {
               "msgtype": "markdown",
-              "markdown": {
-                  "title": "不按惯例 · 打卡提醒",
-                  "text": (
-                      "## 不按惯例 · 打卡提醒\n"
-                      "> 北京时间 22:00 啦，今天你按惯例了吗？\n"
-                      "> 点开链接打个卡 👉 https://chenliguan42057.github.io/RUN-form/"
-                  ),
-              },
+              "markdown": {"title": "不按惯例 · 打卡提醒", "text": "## 不按惯例 · 打卡提醒\n> " + text},
           }
-
-          # 4) 用 curl 发送
           data = json.dumps(payload, ensure_ascii=False)
-          cmd = [
-              "curl", "-s", "-X", "POST",
-              "-H", "Content-Type: application/json",
-              "-d", data,
-              url,
-          ]
+          cmd = ["curl", "-s", "-X", "POST", "-H", "Content-Type: application/json", "-d", data, url]
           result = subprocess.run(cmd, capture_output=True, text=True)
           # curl 本身失败（网络/参数错误）必须让 workflow 变红
           if result.returncode != 0:
-              print("curl 失败:", result.stderr)
-              raise SystemExit(1)
+              print("curl 失败:", result.stderr); raise SystemExit(1)
           # 钉钉业务错误（如签名失效、token 过期）HTTP 仍是 200，需解析响应体
           try:
               resp = json.loads(result.stdout or "{}")
           except json.JSONDecodeError:
-              print("钉钉响应解析失败:", result.stdout)
-              raise SystemExit(1)
+              print("钉钉响应解析失败:", result.stdout); raise SystemExit(1)
           if resp.get("errcode") not in (0, None):
-              print("钉钉返回错误:", resp)
-              raise SystemExit(1)
+              print("钉钉返回错误:", resp); raise SystemExit(1)
           print("钉钉提醒发送成功")
           PY
