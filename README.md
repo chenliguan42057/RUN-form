@@ -137,7 +137,7 @@ RUN-form/
 | ------ | ---- |
 | ① Token 是否过期 | GitHub 的 PAT 有有效期，过期后必须重新生成 |
 | ② Classic Token | 必须勾选 **`repo`** 这个大权限（只勾子项不够） |
-| ③ Fine-grained Token | 需要在 **Account / Repository permissions** 里授予 **`Contents: read & write`** 和 **`Metadata: read`**，并且把本仓库加进 **Repository access** |
+| ③ Fine-grained Token | 需要在 **Account / Repository permissions** 里授予 **`Contents: read & write`**、**`Metadata: read`**，以及 **`Administration: read`**（⚠️ `repository_dispatch` 同步事件由 Administration 权限控制——只给 Contents 能推代码却推不了同步，会报 401）；并把本仓库加进 **Repository access** |
 
 出现 **403** 通常是权限不足或触发太频繁，检查权限后稍等一会儿再试。
 
