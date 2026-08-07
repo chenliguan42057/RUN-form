@@ -453,20 +453,31 @@ function daysSinceEpoch(dateStr, epochStr) {
 }
 
 /**
- * 按日期确定性地取一句心法：距 2026-01-01 的总天数 % len。
- * 与钉钉 9:10 推送使用同一份库、同一个公式，因此同一天两边显示同一句。
- * 637 条要走 637 天才回到原点，跨年不重复，整库都能轮到。
+ * 按日期确定性地取一句心法：距 2026-01-01 的总天数 % len，可再叠加一个偏移量。
+ * 与钉钉推送使用同一份库、同一个公式，因此同一天两边显示同一句。
+ * 整库都能轮到，走满 len 天才回到原点，跨年不重复。
+ *
+ * offset 的用途：早晚两次推送共用一份库但要错开句子。
+ *   · 早上 09:10（daily-quote.yml）：offset 省略 / 0        → index = days % len
+ *   · 晚上 21:10（daily-quote-evening.yml）：offset = len/2 → index = (days + len//2) % len
+ * ⚠️ offset 省略或传 0 时，行为与加这个参数之前完全一致，
+ *    app.js 的 dailyMindsetQuote(dateKey(new Date()), q) 不受影响（仍是早上那句）。
+ *
  * @param {string} dateStr 'YYYY-MM-DD'（本地日期，中国时区即北京日期）
  * @param {string[]} quotes 语录数组
+ * @param {number} [offset] 索引偏移量，缺省 0；非数字 / NaN 一律按 0 处理
  * @returns {string|null} 语录文本；数组为空时返回 null
  */
-function dailyMindsetQuote(dateStr, quotes) {
+function dailyMindsetQuote(dateStr, quotes, offset) {
   if (!quotes || !quotes.length) return null;
   const len = quotes.length;
   // ⚠️ 起点之前的日期天数为负，而 JS 的 % 会返回负余数（-731 % 637 === -94），
   //    Python 的 % 返回非负（543）。不做欧几里得取模，两端就会选出不同的句子，
   //    JS 侧还会因为负索引拿到 undefined。这一步是两端一致性的关键，别删。
-  const idx = ((daysSinceEpoch(dateStr, MINDSET_EPOCH) % len) + len) % len;
+  const base = ((daysSinceEpoch(dateStr, MINDSET_EPOCH) % len) + len) % len;
+  // 偏移同样走欧几里得取模，负 offset / 超过 len 的 offset 都能落回合法索引。
+  const off = typeof offset === "number" && isFinite(offset) ? Math.trunc(offset) : 0;
+  const idx = (((base + off) % len) + len) % len;
   return quotes[idx];
 }
 

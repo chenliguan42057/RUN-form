@@ -36,7 +36,7 @@ RUN-form/
 ├── data/
 │   ├── plans.json                  # 同步上来的计划（钉钉提醒读这个文件）
 │   ├── checkins.json               # 同步上来的打卡台账
-│   ├── quotes.json                 # 每日心法大语录库（首页星语 + 09:10 钉钉推送共用）
+│   ├── quotes.json                 # 每日心法大语录库（首页星语 + 09:10 / 21:10 钉钉推送共用）
 │   └── reminder-state.json         # 提醒送达状态（提醒工作流独占写，前端只读）
 ├── assets/
 │   └── bg-vangogh-ocean.webp       # 背景油画
@@ -44,6 +44,7 @@ RUN-form/
 │   └── workflows/
 │       ├── dingtalk-reminder.yml   # 每 15 分钟检查一次，推送到期计划的钉钉提醒
 │       ├── daily-quote.yml         # 每天北京时间 09:10 推送一句「当日心法」
+│       ├── daily-quote-evening.yml # 每天北京时间 21:10 推送一句「晚安心法」（半库偏移，早≠晚）
 │       └── sync.yml                # 接收同步事件并写入 data/plans.json + data/checkins.json
 └── README.md
 ```
@@ -121,7 +122,7 @@ store.js  →  components.js  →  app.js / app2.js / app3.js
 | `loadMindsetQuotes()` | 异步取 `data/quotes.json` 大语录库，带缓存；失败回落 `VAN_GOGH_QUOTES` |
 | `dayOfYear(dateStr)` | `'YYYY-MM-DD'` → 一年中的第几天（1 月 1 日 = 1）。**星语已不走这里**，保留备用 |
 | `daysSinceEpoch(dateStr, epoch)` | 距 `MINDSET_EPOCH`（2026-01-01 = 0）的总天数，与钉钉工作流口径一致 |
-| `dailyMindsetQuote(dateStr, quotes)` | 按 `days % len` 取当日心法（欧几里得取模），详见「每日心法语录」一节 |
+| `dailyMindsetQuote(dateStr, quotes, offset?)` | 按 `(days + offset) % len` 取心法（欧几里得取模）；`offset` 缺省 0 = 早上那句，传 `len/2` = 晚上那句，详见「每日心法语录」一节 |
 
 几个关键常量：`STAR_MARGIN_X = 9`、`STAR_MARGIN_Y = 13`、`STAR_ASPECT = 1.7`、
 `STAR_MIN_GAP = 17`、`STAR_RELAX_ITERATIONS = 30`、`STAR_LEVEL_STEPS = [0.8, 0.56, 0.32, 0.02]`。
@@ -296,11 +297,11 @@ if freq == "weekly":
   ```
 
   所以同一天不管跑几次、刷新几次，永远是同一句；第二天自动换下一句。
-  目前库里 637 条，**要走满 637 天才回到原点，跨年也不重复，整库 637 条都会被轮到**。
+  目前库里 1102 条，**要走满 1102 天（约 3 年）才回到原点，跨年也不重复，整库都会被轮到**。
 
 > ⚠️ **起点之前的日期天数为负，两端取模语义不同。**
-> Python 的 `%` 对负数返回非负余数（`-1 % 637 == 636`），
-> 而 JS 的 `%` 返回负余数（`-1 % 637 === -1`，会取到 `quotes[-1]` → `undefined`）。
+> Python 的 `%` 对负数返回非负余数（`-1 % 1102 == 1101`），
+> 而 JS 的 `%` 返回负余数（`-1 % 1102 === -1`，会取到 `quotes[-1]` → `undefined`）。
 > 所以 `store.js` 里用的是欧几里得取模 `((n % len) + len) % len` 来对齐 Python。
 > **这行别删**，否则 2026-01-01 之前的日期两端会选出不同的句子。
 
@@ -324,6 +325,42 @@ if freq == "weekly":
 > 起点常量两边也要对齐：`MINDSET_EPOCH`（JS 是字符串 `"2026-01-01"`，Python 是 `date(2026,1,1)`）。
 > 改任何一边都要同步改另一边，否则同一天会看到两句不同的话。
 
+### 每晚心法（21:10 的第二条推送）
+
+除了早上那条，**每天北京时间 21:10** 还会再推一条「晚安心法」，
+走的是 `.github/workflows/daily-quote-evening.yml`，cron `"10 13 * * *"`（UTC 13:10）。
+文案是夜里收尾的口吻：回顾今天、给自己一句定心的话，然后早点睡。
+
+**早上 09:10 那条完全没动**——两个工作流是彼此独立的文件，
+`concurrency.group` 也分成了 `daily-quote` 和 `daily-quote-evening`，互不排队、互不取消。
+
+选句用的是**同一份 `quotes.json`、同一个 `days`**，只是加了个「半库偏移」：
+
+```
+早上：index = days % len
+晚上：index = (days + len // 2) % len
+```
+
+偏移半个库，是为了保证**同一天早上和晚上不会是同一句**（只要 `len >= 2`，`len // 2` 就不为 0），
+同时晚上这条依旧是全库轮播——走满 `len` 天回到原点，一条都不会漏。
+
+JS 侧对应的是 `dailyMindsetQuote(dateStr, quotes, offset)` 的第三个参数：
+
+```js
+dailyMindsetQuote(dateKey(new Date()), quotes)                          // 早上那句（offset 省略 = 0）
+dailyMindsetQuote(dateKey(new Date()), quotes, Math.floor(len / 2))     // 晚上那句
+```
+
+> ⚠️ `offset` 是**可选**参数，省略或传 `0` 时行为与加它之前一模一样。
+> `app.js` 首页「星语」调用的就是不带 `offset` 的版本，所以**页面上显示的永远是早上那句**。
+> 想让首页也跟着变成晚上那句，得自己判断时间再传 `Math.floor(quotes.length / 2)`——目前没这么做。
+
+手动验证：**Actions → 每日晚安心法推送 → Run workflow**，勾上 `dry_run`，
+日志里会同时打印晚上的 `index` 和早上的 `index`，一眼就能看出两句不一样。
+
+和早上那条一样，这个工作流**只读不写**：不碰 `reminder-state.json`，不做任何 `git commit`，
+`permissions` 只申请 `contents: read`。
+
 ### 怎么扩充语录
 
 直接往 `data/quotes.json` 这个数组里加字符串就行，不用改任何代码：
@@ -336,7 +373,8 @@ if freq == "weekly":
 ]
 ```
 
-加完提交推送即可，下一次 09:10 就会用新库选句，首页刷新后也会同步生效。
+加完提交推送即可，下一次 09:10 / 21:10 两条推送都会用新库选句，首页刷新后也会同步生效。
+**早晚两条读的是同一个数组**，所以只要往数组里加字符串，两条一起变多，不用改任何代码。
 
 **条数越多，一轮走完需要的天数越久，也就越久不重样**——整库都在轮播里，
 加一条就多一天不重复。注意加句子会**改变末尾之后所有日期的对应关系**
