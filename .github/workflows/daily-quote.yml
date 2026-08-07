@@ -1,0 +1,201 @@
+name: 每日心法语录
+
+# 触发：每天北京时间 09:10 推送一句「当日心法」到钉钉。
+#
+# cron 用的是 UTC，北京时间 = UTC+8，所以 09:10(+08:00) → 01:10(UTC) → "10 1 * * *"。
+#
+# ⚠️ GitHub 的 schedule 不保证准时，高峰期延迟 5~20 分钟是常态。
+#   本工作流不做补偿窗口、也不做幂等去重——因为它一天只跑一次，
+#   频率由 cron 自身保证；晚几分钟不影响「今天这句话」的正确性。
+#
+# 与 dingtalk-reminder.yml 的区别：
+#   · reminder 是「计划到点提醒」，要读 plans.json、要写 reminder-state.json（需要写权限）；
+#   · 本工作流只读 data/quotes.json，不写任何仓库文件，因此 permissions 只要 read。
+on:
+  schedule:
+    - cron: "10 1 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "演练模式：只打印当日语录与消息全文，不发钉钉"
+        type: boolean
+        required: false
+        default: false
+
+# 同一时刻只允许一个任务在跑；宁可排队也不要把发了一半的请求砍掉。
+concurrency:
+  group: daily-quote
+  cancel-in-progress: false
+
+# 只读 data/quotes.json，不提交任何文件，所以只要读权限。
+permissions:
+  contents: read
+
+jobs:
+  daily-quote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 取当日心法并推送钉钉
+        # webhook 与 secret 均从 GitHub Secrets 读取，绝不写死真实值；
+        # workflow_dispatch 的输入统一走 env，避免 ${{ }} 直接拼进脚本造成注入。
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python3 - <<'PY'
+          # -*- coding: utf-8 -*-
+          """每天 09:10（北京时间）从 data/quotes.json 取一句心法推送到钉钉。"""
+          import base64
+          import datetime
+          import hashlib
+          import hmac
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          # ---------------------------- 常量 ----------------------------
+
+          QUOTES_PATH = os.path.join("data", "quotes.json")
+          SITE_URL = "https://chenliguan42057.github.io/RUN-form/"
+          # 北京时间（UTC+8）。选句用的「今天」按北京日期理解，
+          # 与前端 store.js 的 dailyMindsetQuote(dateKey(new Date()), ...) 口径一致。
+          BJ_TZ = datetime.timezone(datetime.timedelta(hours=8))
+          # 轮播起点：2026-01-01 记为第 0 天。
+          # ⚠️ 必须与 store.js 的 MINDSET_EPOCH 完全一致，改一边就会两边选出不同的句子。
+          MINDSET_EPOCH = datetime.date(2026, 1, 1)
+
+          # data/quotes.json 缺失或损坏时的兜底小库。
+          # 存在的意义只是「别让工作流变红」，正常情况下永远用不到。
+          FALLBACK_QUOTES = [
+              "我的归属不是眼前的苟且，我想试试不一样的人生。",
+              "我不将就，因为将就一次，就会将就一辈子。",
+              "因为热爱，所以愿意吃这份苦。",
+              "路是自己选的，走下去就别回头看。",
+              "只要还在走，路就没有尽头。",
+          ]
+
+          # ---------------------------- 工具函数 ----------------------------
+
+          def load_json(path, fallback):
+              """读 JSON；文件不存在 / 内容损坏时返回 fallback，绝不让 workflow 变红。"""
+              try:
+                  with open(path, encoding="utf-8") as fp:
+                      return json.load(fp)
+              except (OSError, ValueError) as exc:
+                  print(f"读取 {path} 失败（{exc}），使用兜底语录")
+                  return fallback
+
+          def load_quotes():
+              """读语录大库并做健壮性清洗，保证返回一个非空的字符串列表。"""
+              raw = load_json(QUOTES_PATH, FALLBACK_QUOTES)
+              if not isinstance(raw, list):
+                  print(f"{QUOTES_PATH} 不是数组，使用兜底语录")
+                  return list(FALLBACK_QUOTES)
+              cleaned = [s.strip() for s in raw if isinstance(s, str) and s.strip()]
+              if not cleaned:
+                  print(f"{QUOTES_PATH} 为空或无有效条目，使用兜底语录")
+                  return list(FALLBACK_QUOTES)
+              return cleaned
+
+          def send_dingtalk(title, text):
+              """加签后调用钉钉机器人 webhook；失败抛异常由调用方决定退出码。"""
+              webhook = os.environ.get("DINGTALK_WEBHOOK", "")
+              secret = os.environ.get("DINGTALK_SECRET", "")
+              if not webhook or not secret:
+                  raise RuntimeError("缺少 DINGTALK_WEBHOOK / DINGTALK_SECRET secret")
+
+              timestamp = str(round(time.time() * 1000))
+              string_to_sign = f"{timestamp}\n{secret}"
+              digest = hmac.new(
+                  secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256
+              ).digest()
+              sign = urllib.parse.quote_plus(base64.b64encode(digest).decode("utf-8"))
+              url = f"{webhook}&timestamp={timestamp}&sign={sign}"
+
+              payload = {
+                  "msgtype": "markdown",
+                  "markdown": {"title": title, "text": text},
+              }
+              body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+              request = urllib.request.Request(
+                  url,
+                  data=body,
+                  headers={"Content-Type": "application/json; charset=utf-8"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as resp:
+                      raw = resp.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as exc:
+                  raise RuntimeError(f"钉钉 HTTP {exc.code}：{exc.read().decode('utf-8', 'replace')}")
+              except urllib.error.URLError as exc:
+                  raise RuntimeError(f"钉钉网络错误：{exc.reason}")
+
+              # 钉钉的业务错误（签名失效 / 频率超限）HTTP 仍是 200，必须解析响应体
+              try:
+                  result = json.loads(raw or "{}")
+              except ValueError:
+                  raise RuntimeError(f"钉钉响应无法解析：{raw}")
+              if result.get("errcode") not in (0, None):
+                  raise RuntimeError(f"钉钉返回错误：{result}")
+              return result
+
+          # ---------------------------- 主流程 ----------------------------
+
+          dry_run = str(os.environ.get("DRY_RUN", "")).strip().lower() == "true"
+
+          now = datetime.datetime.now(BJ_TZ)
+          today = now.date()
+          # 距 2026-01-01 的总天数（起点当天 = 0，起点之前为负）。
+          # ⚠️ 必须与 store.js 的 daysSinceEpoch() 口径一字不差，
+          #    否则首页「星语」和钉钉推送会在同一天显示两句不同的话。
+          days = (today - MINDSET_EPOCH).days
+
+          quotes = load_quotes()
+          # 取模轮播：整库都会被轮到，637 条要走 637 天才回到原点，跨年不重复。
+          # Python 的 % 对负数返回非负余数，JS 侧靠欧几里得取模对齐（见 store.js 注释）。
+          index = days % len(quotes)
+          quote = quotes[index]
+
+          print(
+              f"[{now:%Y-%m-%d %H:%M} +08:00] 距 {MINDSET_EPOCH} 第 {days} 天 / "
+              f"共 {len(quotes)} 条语录 → index {index}"
+          )
+
+          title = "星河自律 · 每日心法"
+          text = "\n".join([
+              "## 🌅 早安心法 · 9:10",
+              "",
+              "> 每天一句，把「不将就、走自己的路、因热爱而坚持」刻进意识。",
+              "",
+              f"**{quote}**",
+              "",
+              "—— 今日心法 · RUN-form",
+              "",
+              f"[👉 打开星河自律]({SITE_URL})",
+          ])
+
+          # ---- 演练模式：只打印，不发送 ----
+          if dry_run:
+              print("===== DRY RUN：以下内容不会真的发送 =====")
+              print(f"title: {title}")
+              print(text)
+              print("=========================================")
+              raise SystemExit(0)
+
+          # ---- 真正发送 ----
+          try:
+              send_dingtalk(title, text)
+          except RuntimeError as exc:
+              print(f"发送失败：{exc}")
+              raise SystemExit(1)
+
+          print("每日心法推送成功")
+          PY

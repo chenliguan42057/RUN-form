@@ -36,12 +36,14 @@ RUN-form/
 ├── data/
 │   ├── plans.json                  # 同步上来的计划（钉钉提醒读这个文件）
 │   ├── checkins.json               # 同步上来的打卡台账
+│   ├── quotes.json                 # 每日心法大语录库（首页星语 + 09:10 钉钉推送共用）
 │   └── reminder-state.json         # 提醒送达状态（提醒工作流独占写，前端只读）
 ├── assets/
 │   └── bg-vangogh-ocean.webp       # 背景油画
 ├── .github/
 │   └── workflows/
 │       ├── dingtalk-reminder.yml   # 每 15 分钟检查一次，推送到期计划的钉钉提醒
+│       ├── daily-quote.yml         # 每天北京时间 09:10 推送一句「当日心法」
 │       └── sync.yml                # 接收同步事件并写入 data/plans.json + data/checkins.json
 └── README.md
 ```
@@ -116,6 +118,10 @@ store.js  →  components.js  →  app.js / app2.js / app3.js
 | `buildStarMap(plans)` | 星点 + 星座连线 + `{total, lit, dim}` 统计，含确定性松弛去重叠 |
 | `buildMonthGrid(y, m)` | 月历网格，整周对齐、**周一在第一列**、带当月活动统计 |
 | `milestoneCheer()` | 里程碑文案，无数据时也给鼓励，不会返回空 |
+| `loadMindsetQuotes()` | 异步取 `data/quotes.json` 大语录库，带缓存；失败回落 `VAN_GOGH_QUOTES` |
+| `dayOfYear(dateStr)` | `'YYYY-MM-DD'` → 一年中的第几天（1 月 1 日 = 1）。**星语已不走这里**，保留备用 |
+| `daysSinceEpoch(dateStr, epoch)` | 距 `MINDSET_EPOCH`（2026-01-01 = 0）的总天数，与钉钉工作流口径一致 |
+| `dailyMindsetQuote(dateStr, quotes)` | 按 `days % len` 取当日心法（欧几里得取模），详见「每日心法语录」一节 |
 
 几个关键常量：`STAR_MARGIN_X = 9`、`STAR_MARGIN_Y = 13`、`STAR_ASPECT = 1.7`、
 `STAR_MIN_GAP = 17`、`STAR_RELAX_ITERATIONS = 30`、`STAR_LEVEL_STEPS = [0.8, 0.56, 0.32, 0.02]`。
@@ -269,6 +275,88 @@ if freq == "weekly":
 >（填了 Token 的话会自动同步），等 Actions 跑完把 `data/plans.json` 更新掉，提醒才会生效。
 
 没同步过的计划，调度器根本看不见。
+
+---
+
+## 每日心法语录
+
+和「打卡提醒」是两条完全独立的链路：提醒盯的是**你的计划到点没有**，
+心法语录盯的是**今天这句话**。前者读 `data/plans.json`，后者读 `data/quotes.json`。
+
+### 它每天做什么
+
+- **每天北京时间 09:10**，`.github/workflows/daily-quote.yml` 自动从
+  `data/quotes.json` 里取一句，推送到钉钉。
+- cron 写的是 `"10 1 * * *"`——GitHub 用 UTC，北京时间 = UTC+8，所以 09:10 要往前推 8 小时。
+- 选句规则是**按日期轮播**，不是随机：
+
+  ```
+  days  = 今天距 2026-01-01 的总天数（2026-01-01 记为 0）
+  quote = quotes[days % quotes.length]
+  ```
+
+  所以同一天不管跑几次、刷新几次，永远是同一句；第二天自动换下一句。
+  目前库里 637 条，**要走满 637 天才回到原点，跨年也不重复，整库 637 条都会被轮到**。
+
+> ⚠️ **起点之前的日期天数为负，两端取模语义不同。**
+> Python 的 `%` 对负数返回非负余数（`-1 % 637 == 636`），
+> 而 JS 的 `%` 返回负余数（`-1 % 637 === -1`，会取到 `quotes[-1]` → `undefined`）。
+> 所以 `store.js` 里用的是欧几里得取模 `((n % len) + len) % len` 来对齐 Python。
+> **这行别删**，否则 2026-01-01 之前的日期两端会选出不同的句子。
+
+### 首页「星语」读的是同一份库
+
+`index.html` 的「星语」也走 `data/quotes.json`，用的是同一个
+`days % len` 公式（`store.js` 的 `daysSinceEpoch()` / `dailyMindsetQuote()`），
+所以**网页上看到的那句，就是当天早上钉钉推给你的那句**。
+
+渲染分两步，是为了避免加载期间那块地方是空的：
+
+1. 同步先渲染一句梵高语录兜底（署名 `— 梵高`）；
+2. `loadMindsetQuotes()` 异步取回大库后，用「当日心法」覆盖（署名 `— RUN-form 心法`）。
+
+`quotes.json` 拉不到（离线 / 文件损坏 / 空数组）时会静默回落到梵高语录，
+首页不会白屏；钉钉侧同样有内置的 5 条兜底小库，**工作流不会因为语录文件出问题而变红**。
+
+> ⚠️ 两边的天数口径必须一字不差：
+> Python 侧是 `(today - date(2026, 1, 1)).days`，
+> JS 侧是 `store.js` 的 `daysSinceEpoch()`（用 `Date.UTC` 做减法绕开夏令时）。
+> 起点常量两边也要对齐：`MINDSET_EPOCH`（JS 是字符串 `"2026-01-01"`，Python 是 `date(2026,1,1)`）。
+> 改任何一边都要同步改另一边，否则同一天会看到两句不同的话。
+
+### 怎么扩充语录
+
+直接往 `data/quotes.json` 这个数组里加字符串就行，不用改任何代码：
+
+```json
+[
+  "我的归属不是眼前的苟且，我想试试不一样的人生。",
+  "我不将就，因为将就一次，就会将就一辈子。",
+  "在这里加你自己的新句子。"
+]
+```
+
+加完提交推送即可，下一次 09:10 就会用新库选句，首页刷新后也会同步生效。
+
+**条数越多，一轮走完需要的天数越久，也就越久不重样**——整库都在轮播里，
+加一条就多一天不重复。注意加句子会**改变末尾之后所有日期的对应关系**
+（因为 `len` 变了，取模结果整体平移），这不影响两端一致性（两边读的是同一个文件）。
+
+**想指定某天显示哪句**，直接改对应索引位置上的那条：
+
+```
+索引 = 该日期距 2026-01-01 的天数
+```
+
+例如 2026-01-01 是索引 `0`，2026-08-06 是索引 `217`，2026-08-07 是索引 `218`。
+
+### 手动验证
+
+**Actions → 每日心法语录 → Run workflow**，勾上 `dry_run` 就只在日志里打印
+当天选中的语录和消息全文，**不会真的发钉钉**。改文案时先这么跑一遍。
+
+这个工作流**只读不写**——不碰 `reminder-state.json`，不做任何 `git commit`，
+`permissions` 也只申请了 `contents: read`。
 
 ---
 

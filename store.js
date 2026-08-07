@@ -385,6 +385,91 @@ function randomQuote(seed) {
   return VAN_GOGH_QUOTES[hashString(seed) % VAN_GOGH_QUOTES.length];
 }
 
+// ---------------------- 每日心法（大语录库，与钉钉 9:10 推送同源） ----------------------
+
+/** 大语录库的相对路径。GitHub Pages 与本地静态服务器都能直接取到。 */
+const MINDSET_QUOTES_URL = "data/quotes.json";
+
+/** 进程内缓存，避免每次渲染都重复 fetch 同一份 JSON。 */
+let _mindsetQuotes = null;
+
+/**
+ * 加载 data/quotes.json 大语录库（带缓存与兜底）。
+ * 网络失败 / 文件损坏 / 空数组时回落到 VAN_GOGH_QUOTES，保证首页永远有话可说。
+ * @returns {Promise<string[]>} 语录数组，永不为空
+ */
+async function loadMindsetQuotes() {
+  if (_mindsetQuotes) return _mindsetQuotes;
+  try {
+    const r = await fetch(MINDSET_QUOTES_URL, { cache: "no-cache" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const arr = await r.json();
+    if (Array.isArray(arr) && arr.length) {
+      _mindsetQuotes = arr;
+      return arr;
+    }
+  } catch (e) {
+    console.warn("[RUN-form] quotes.json 加载失败，回落到梵高语录：", e);
+  }
+  _mindsetQuotes = VAN_GOGH_QUOTES;
+  return _mindsetQuotes;
+}
+
+/**
+ * 每日心法轮播的固定起点：2026-01-01 记为第 0 天。
+ * ⚠️ 必须与 .github/workflows/daily-quote.yml 里的 MINDSET_EPOCH 完全一致。
+ */
+const MINDSET_EPOCH = "2026-01-01";
+
+/**
+ * 一年中的第几天（1 月 1 日 = 1）。
+ * ⚠️ 「星语」选句已改用 daysSinceEpoch，不再走这里；本函数保留仅供其它场景取用。
+ *    用 Date.UTC 做减法而不是本地 Date，是为了绕开夏令时导致的 23/25 小时天。
+ * @param {string} dateStr 'YYYY-MM-DD'
+ * @returns {number} 1 ~ 366
+ */
+function dayOfYear(dateStr) {
+  const [y, m, d] = String(dateStr).split("-").map(Number);
+  const start = Date.UTC(y, 0, 1);
+  const cur = Date.UTC(y, m - 1, d);
+  return Math.floor((cur - start) / 86400000) + 1;
+}
+
+/**
+ * 距固定起点的总天数（起点当天 = 0，起点之前为负）。
+ * ⚠️ 必须与 daily-quote.yml 的 (today - MINDSET_EPOCH).days 一字不差。
+ *    用 Date.UTC 做减法绕开夏令时导致的 23/25 小时天。
+ * @param {string} dateStr 'YYYY-MM-DD'
+ * @param {string} [epochStr] 起点，缺省为 MINDSET_EPOCH
+ * @returns {number} 整数天差，可为负
+ */
+function daysSinceEpoch(dateStr, epochStr) {
+  const toUTC = (s) => {
+    const [y, m, d] = String(s).split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const epoch = toUTC(epochStr === undefined || epochStr === null ? MINDSET_EPOCH : epochStr);
+  return Math.round((toUTC(dateStr) - epoch) / 86400000);
+}
+
+/**
+ * 按日期确定性地取一句心法：距 2026-01-01 的总天数 % len。
+ * 与钉钉 9:10 推送使用同一份库、同一个公式，因此同一天两边显示同一句。
+ * 637 条要走 637 天才回到原点，跨年不重复，整库都能轮到。
+ * @param {string} dateStr 'YYYY-MM-DD'（本地日期，中国时区即北京日期）
+ * @param {string[]} quotes 语录数组
+ * @returns {string|null} 语录文本；数组为空时返回 null
+ */
+function dailyMindsetQuote(dateStr, quotes) {
+  if (!quotes || !quotes.length) return null;
+  const len = quotes.length;
+  // ⚠️ 起点之前的日期天数为负，而 JS 的 % 会返回负余数（-731 % 637 === -94），
+  //    Python 的 % 返回非负（543）。不做欧几里得取模，两端就会选出不同的句子，
+  //    JS 侧还会因为负索引拿到 undefined。这一步是两端一致性的关键，别删。
+  const idx = ((daysSinceEpoch(dateStr, MINDSET_EPOCH) % len) + len) % len;
+  return quotes[idx];
+}
+
 /**
  * 把毫秒差格式化成人类可读的倒计时。
  * @param {number} ms 毫秒差

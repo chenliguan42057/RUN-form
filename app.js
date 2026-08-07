@@ -15,7 +15,8 @@
  *                 overviewStats / buildHeatmap / nextReminder / describePlan / themeOf /
  *                 greetingNow / skyPoem / randomQuote / formatCountdown / dateKey /
  *                 pyWeekday / loadReminderLog / reminderStatus / scheduleAutoSync /
- *                 showToast / WEEKDAY_LABELS
+ *                 showToast / WEEKDAY_LABELS /
+ *                 loadMindsetQuotes / dailyMindsetQuote（每日心法，见 data/quotes.json）
  *   components.js uiNav / uiStarfield / uiRing / uiStarHeatmap / uiTimelineStar / uiEmpty /
  *                 uiCountUp / uiComet / uiMoonPhase / uiMoonName / uiSkyQuote /
  *                 uiTooltip / uiRevealOnLoad
@@ -82,7 +83,9 @@ function applyMotionPref() {
 
 /**
  * 渲染时段问候、时段旁白、今天的日期，以及当日恒定的「星语」。
- * 语录用 dateKey() 作 seed，同一天刷新多少次都一样，避免闪烁感。
+ * 「星语」分两步：先用梵高语录同步兜底（避免加载期空白），
+ * 再异步取 data/quotes.json 大库里的「当日心法」覆盖。
+ * 两步都按日期确定性取句，同一天刷新多少次都一样，避免闪烁感。
  * @returns {void}
  */
 function renderHeader() {
@@ -94,7 +97,15 @@ function renderHeader() {
     `${WEEKDAY_LABELS[pyWeekday(now)]}`;
   if (skyPoemEl) skyPoemEl.textContent = skyPoem(now);
   if (dailyQuoteEl) {
+    // 先给一句兜底，避免加载期间空白
     dailyQuoteEl.innerHTML = uiSkyQuote(randomQuote(dateKey(now)), { from: "梵高" });
+    // 再异步加载大语录库，用「当日心法」覆盖（与钉钉 9:10 推送同源同句）
+    loadMindsetQuotes()
+      .then((quotes) => {
+        const q = dailyMindsetQuote(dateKey(new Date()), quotes);
+        if (q) dailyQuoteEl.innerHTML = uiSkyQuote(q, { from: "RUN-form 心法" });
+      })
+      .catch(() => {});
   }
 }
 
