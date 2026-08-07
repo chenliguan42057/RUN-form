@@ -1,0 +1,119 @@
+name: 追加语录
+
+# 触发：管理页「添加到语录库」按钮 → store.js addMindsetQuotes() 发出的 repository_dispatch。
+#
+# ⚠️ event_type("add-quotes") 与 client_payload.quotes（字符串数组）是 store.js 的输出契约，
+#   两边必须同时改，否则添加会静默失效（dispatch 返回 204，但没有任何工作流接手）。
+on:
+  repository_dispatch:
+    types: [add-quotes]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: add-quotes         # 与 sync-checkins / keepalive / dingtalk-reminder / daily-quote* 均不重名
+  cancel-in-progress: false
+
+jobs:
+  add-quotes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: 追加、去重并写回语录库
+        env:
+          # toJson 保证任意内容都被安全地序列化进环境变量，不做 ${{ }} 裸拼接（防注入）
+          NEW_QUOTES_JSON: ${{ toJson(github.event.client_payload.quotes) }}
+        run: |
+          python3 - <<'PY'
+          # -*- coding: utf-8 -*-
+          import json, os, sys
+
+          PATH      = os.path.join("data", "quotes.json")
+          MAX_LEN   = 200          # 单条长度上限，防止把整篇文章塞进来
+          MAX_BATCH = 200          # 单次条数上限，防止一次推爆
+          BANNED    = set('<>&"')  # 与前端 escapeHtml 覆盖的字符集对齐，宁可少收不冒险
+
+          def clean(s):
+              """清洗单条：非字符串 / 空串 / 超长 / 含 <>&" 一律丢弃。
+                 ⚠️ 规则必须与 store.js parseQuoteInput() 一字不差，否则前端预览数与实际入库数对不上。"""
+              if not isinstance(s, str):
+                  return None
+              s = s.strip()
+              if not s or len(s) > MAX_LEN:
+                  return None
+              if any(ch in BANNED for ch in s):
+                  return None
+              return s
+
+          # 1) 读现有库。⚠️ 这里【不做 fallback】：文件损坏时宁可让工作流变红，
+          #    也绝不能拿一个空数组去覆盖 1100+ 条语录。
+          with open(PATH, encoding="utf-8") as f:
+              existing = json.load(f)
+          if not isinstance(existing, list):
+              sys.exit("data/quotes.json 不是数组，拒绝写入")
+
+          # 2) 解析 payload
+          try:
+              incoming = json.loads(os.environ.get("NEW_QUOTES_JSON", "[]"))
+          except Exception:
+              incoming = []
+          if not isinstance(incoming, list):
+              incoming = []
+          incoming = incoming[:MAX_BATCH]
+
+          # 3) 过滤 + 去重（与现有库比对，同时批内自去重；均按 strip 后精确匹配）
+          seen  = {q.strip() for q in existing if isinstance(q, str)}
+          added = []
+          for raw in incoming:
+              s = clean(raw)
+              if s is None or s in seen:
+                  continue
+              seen.add(s)
+              added.append(s)
+
+          if not added:
+              print("无有效新增（空 / 非法字符 / 重复），跳过写入")
+              raise SystemExit(0)
+
+          # ⚠️ 只在末尾追加，绝不重排、绝不删除历史条目：
+          #    索引一旦变动，「某天对应哪句」的历史口径就全乱了。
+          result = existing + added
+
+          # 4) 写回。⚠️⚠️ 行尾必须是 LF：仓库里 data/quotes.json 的 blob 就是 LF
+          #    （本地 Windows 看到 CRLF 只是 core.autocrlf=true 的检出效果）。
+          #    写成 \r\n 会把 1100+ 行全标成改动，还会把 blob 污染成 CRLF。
+          #    同时保留 2 空格缩进 + 末尾一个换行，保证 diff 只有新增那几行。
+          with open(PATH, "w", encoding="utf-8") as f:
+              json.dump(result, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+
+          print(f"新增 {len(added)} 条，语录库 {len(existing)} → {len(result)} 条")
+          for s in added:
+              print("  +", s)
+          PY
+
+      - name: 提交并推送
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          # ⚠️ 只 add quotes.json，遵守「一个文件一个写者」的约定：
+          #    绝不碰 reminder-state.json / plans.json / checkins.json / heartbeat.json
+          git add data/quotes.json
+
+          if git diff --cached --quiet; then
+            echo "语录库无变化，跳过提交"
+          else
+            git commit -m "chore(quotes): 网页端追加语录 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push || {
+              echo "推送冲突，rebase 后重试"
+              git pull --rebase --autostash
+              git push
+            }
+          fi

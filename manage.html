@@ -269,6 +269,32 @@
           </details>
         </section>
 
+        <!-- 语录库扩充：网页端贴句子 → repository_dispatch → add-quotes.yml 由 Actions 写回仓库 -->
+        <section class="drawer-sec" id="quotes-card">
+          <h3 class="drawer-sec-title">✍️ 扩充语录库</h3>
+          <p class="setting-note">
+            每行一句，会<strong>追加到 <code>data/quotes.json</code> 末尾</strong>。
+            首页「星语」与早晚 09:10 / 21:10 两条钉钉推送共用这一份库，
+            <strong>条数越多，越久不重样</strong>。
+            与库里重复的句子会自动跳过；含
+            <code>&lt;</code> <code>&gt;</code> <code>&amp;</code> <code>"</code>
+            的行会被丢弃。
+          </p>
+
+          <label for="quote-input" class="field-label">新语录（每行一句）</label>
+          <textarea id="quote-input" class="textarea" rows="4"
+            placeholder="别停，你已经走了这么远。&#10;你现在做的一切，都在为将来的你铺路。"></textarea>
+
+          <p class="setting-note">
+            将新增 <strong id="quote-preview-count">0</strong> 条 ·
+            提交后 GitHub Actions 约 1 分钟写回仓库，Pages 重新发布后首页生效。
+          </p>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-vg-teal" id="add-quote-btn">添加到语录库</button>
+          </div>
+        </section>
+
         <p class="drawer-about">
           星河契约 · RUN-form v4 —— 无后端、无构建、无第三方依赖，
           所有数据都躺在这台设备的浏览器里。

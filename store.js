@@ -1113,6 +1113,113 @@ function buildActivityMap(opts) {
   return map;
 }
 
+/* =====================================================================
+   v5 语录库扩充层（网页端追加 → Actions 写回，前端从不直接写仓库文件）
+   ===================================================================== */
+
+/** 单条语录长度上限。⚠️ 必须与 add-quotes.yml 的 MAX_LEN 一致 */
+const QUOTE_MAX_LEN = 200;
+/** 单次提交条数上限。⚠️ 必须与 add-quotes.yml 的 MAX_BATCH 一致 */
+const QUOTE_MAX_BATCH = 200;
+
+/**
+ * 把多行文本清洗成候选语录数组：按行拆 → trim → 丢空行 / 超长 / 含 <>&" 的行 → 批内去重。
+ * ⚠️ 过滤规则必须与 .github/workflows/add-quotes.yml 的 clean() 一字不差，
+ *    否则页面说「将新增 3 条」而工作流只收 2 条，用户会以为数据丢了。
+ * 纯函数，不碰 DOM 与网络，便于 qa-runtime 直接断言。
+ * @param {string} text 用户输入的多行文本
+ * @returns {string[]} 清洗后的候选语录（尚未与现有库比对）
+ */
+function parseQuoteInput(text) {
+  const out = [];
+  const seen = new Set();
+  for (const line of String(text || "").split(/\r?\n/)) {
+    const s = line.trim();
+    if (!s || s.length > QUOTE_MAX_LEN) continue;
+    if (/[<>&"]/.test(s)) continue;   // 与 escapeHtml 覆盖的字符集对齐
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out.slice(0, QUOTE_MAX_BATCH);
+}
+
+/**
+ * 网页端追加语录：清洗 → 与现有库去重 → repository_dispatch("add-quotes") → 更新进程内缓存。
+ *
+ * 架构约定（与 dispatchSync 相同）：前端【不】调 Contents API、不直接写仓库文件，
+ * 只发一个 repository_dispatch，真正的写库由 add-quotes.yml 用内置 GITHUB_TOKEN 完成。
+ *
+ * 成功 / 失败都会自行 showToast，调用方只需要根据返回值决定要不要清空输入框。
+ * @param {string} text 多行文本，每行一句
+ * @param {string} token GitHub Personal Access Token
+ * @returns {Promise<number>} 已提交的新增条数；0 表示什么都没提交
+ */
+async function addMindsetQuotes(text, token) {
+  if (!token) {
+    showToast("请先在管理页填写 Personal Access Token", "error");
+    return 0;
+  }
+
+  const candidates = parseQuoteInput(text);
+  if (!candidates.length) {
+    showToast('没有可添加的句子（空行、超长或含 < > & " 的行会被忽略）', "error");
+    return 0;
+  }
+
+  // 与现有库比对去重。loadMindsetQuotes() 失败时会回落到 VAN_GOGH_QUOTES，
+  // 那种情况下这里的去重基准不准，但工作流侧还会以真实文件再去重一次，不会写进重复条目。
+  const existing = await loadMindsetQuotes();
+  const known = new Set(existing.map((q) => String(q).trim()));
+  const fresh = candidates.filter((s) => !known.has(s));
+  if (!fresh.length) {
+    showToast("这些句子语录库里已经有了", "info");
+    return 0;
+  }
+
+  try {
+    const resp = await fetch(REPO_DISPATCH_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.github+json",
+      },
+      // ⚠️ event_type 与 client_payload 结构是 add-quotes.yml 的输入契约，禁止单边改动
+      body: JSON.stringify({
+        event_type: "add-quotes",
+        client_payload: { quotes: fresh },
+      }),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      if (resp.status === 401) {
+        throw new Error(
+          "添加失败（401）：GitHub Token 无效或权限不足。请确认：①Token 未过期；" +
+            "②Classic Token 需勾选 repo 权限；" +
+            "③Fine-grained Token 需在 Account/Repository 授予 Contents:read&write 与 Metadata:read。"
+        );
+      }
+      if (resp.status === 403) {
+        throw new Error("添加失败（403）：Token 无权限或触发频率限制，请检查权限或稍后重试。");
+      }
+      throw new Error("HTTP " + resp.status + " " + errText);
+    }
+  } catch (err) {
+    console.error("添加语录失败：", err);
+    showToast(err.message, "error");
+    return 0;
+  }
+
+  // 乐观更新进程内缓存：本次会话内（不刷新页面）就能选到新句；
+  // ⚠️ 只是内存缓存，刷新后仍以仓库文件为准 —— 仓库侧要等 Actions 提交 + Pages 重新发布（约 1 分钟）。
+  if (Array.isArray(_mindsetQuotes)) _mindsetQuotes = _mindsetQuotes.concat(fresh);
+
+  showToast(`已提交 ${fresh.length} 条，约 1 分钟后生效`, "success");
+  return fresh.length;
+}
+
 /**
  * 构建热力图数据（GitHub 风格：按周分列，周一在最上面一行）。
  * @param {number} [days=182] 回溯天数（仪表盘 84 ≈ 12 周；统计页 371 ≈ 53 周）

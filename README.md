@@ -37,6 +37,7 @@ RUN-form/
 │   ├── plans.json                  # 同步上来的计划（钉钉提醒读这个文件）
 │   ├── checkins.json               # 同步上来的打卡台账
 │   ├── quotes.json                 # 每日心法大语录库（首页星语 + 09:10 / 21:10 钉钉推送共用）
+│   ├── heartbeat.json              # 心跳保活时间戳（keepalive 工作流独占写，仅用于重置 60 天停用计时）
 │   └── reminder-state.json         # 提醒送达状态（提醒工作流独占写，前端只读）
 ├── assets/
 │   └── bg-vangogh-ocean.webp       # 背景油画
@@ -45,6 +46,8 @@ RUN-form/
 │       ├── dingtalk-reminder.yml   # 每 15 分钟检查一次，推送到期计划的钉钉提醒
 │       ├── daily-quote.yml         # 每天北京时间 09:10 推送一句「当日心法」
 │       ├── daily-quote-evening.yml # 每天北京时间 21:10 推送一句「晚安心法」（半库偏移，早≠晚）
+│       ├── add-quotes.yml          # 网页端添加语录：追加写回 data/quotes.json
+│       ├── keepalive.yml           # 心跳保活：每 ~20 天提交一次，防 60 天停用定时任务
 │       └── sync.yml                # 接收同步事件并写入 data/plans.json + data/checkins.json
 └── README.md
 ```
@@ -387,6 +390,29 @@ dailyMindsetQuote(dateKey(new Date()), quotes, Math.floor(len / 2))     // 晚�
 ```
 
 例如 2026-01-01 是索引 `0`，2026-08-06 是索引 `217`，2026-08-07 是索引 `218`。
+
+### 网页端添加语录（方式二，推荐）
+
+不用碰 JSON 文件——打开管理页 → 右上角 **✦ 设置** → **✍️ 扩充语录库**，每行贴一句，
+下方实时显示「将新增 N 条」，点 **添加到语录库** 即可：
+
+- 背后触发 `repository_dispatch`（事件类型 `add-quotes`），由 `add-quotes.yml` 用 `GITHUB_TOKEN`
+  把新句子**追加到 `data/quotes.json` 末尾**并推送；前端从不直接写仓库文件。
+- 与库里重复的句子自动跳过；含 `<` `>` `&` `"` 的行会被丢弃（防注入）。
+- 提交后约 1 分钟 GitHub Pages 重新发布生效；首页「星语」与次日 09:10 / 21:10 两条钉钉推送都会用新库。
+- 注意：追加到末尾会让 `len` 变化，导致当天及之后每天的对应句整体平移，
+  **可能与当日已经发出的钉钉推送（读的是旧文件）不同句**——这是扩库的固有代价，属正常。
+
+### 心跳保活（防定时任务被停用）
+
+GitHub 会对「60 天无仓库活动」的仓库**自动停用全部 `on.schedule` 工作流**，且是静默的——
+届时早晚钉钉推送与打卡提醒会直接不再触发。本项目三个定时工作流都可能在长期无提交时停摆，
+因此新增 `keepalive.yml`：
+
+- 每月 1 日 / 21 日（北京 12:00）自动向 `main` 提交一个 `data/heartbeat.json` 时间戳，
+  最长间隔 20 天，远小于 60 天阈值，持续重置「无活动」计时。
+- 它**只写 `heartbeat.json`**，绝不碰 `reminder-state.json` / `plans.json` / `checkins.json` / `quotes.json`。
+- 上线后可手动 **Actions → 心跳保活 → Run workflow** 立即验证一次；若怀疑被停用，手动跑一次即可复活全部定时任务。
 
 ### 手动验证
 

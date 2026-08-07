@@ -83,6 +83,11 @@ const ledgerBody = $("ledger-body");
 const ledgerEmpty = $("ledger-empty");
 const clearAllBtn = $("clear-all-btn");
 
+// 语录库
+const quoteInput = $("quote-input");
+const addQuoteBtn = $("add-quote-btn");
+const quotePreviewCount = $("quote-preview-count");
+
 // 同步
 const patInput = $("pat-input");
 const syncBtn = $("sync-btn");
@@ -717,6 +722,42 @@ if (patInput) {
   });
 }
 
+// ============================ 事件：扩充语录库 ============================
+
+/**
+ * 刷新「将新增 N 条」预览。
+ * N 是【清洗后】的候选条数，不含「与现有库重复」的判断——那一步要异步读 quotes.json，
+ * 放到真正提交时做，避免每敲一个字都去比对 1100+ 条。
+ * @returns {void}
+ */
+function renderQuotePreview() {
+  if (!quotePreviewCount || !quoteInput) return;
+  quotePreviewCount.textContent = String(parseQuoteInput(quoteInput.value).length);
+}
+
+if (quoteInput) {
+  quoteInput.addEventListener("input", renderQuotePreview);
+}
+
+if (addQuoteBtn) {
+  addQuoteBtn.addEventListener("click", async () => {
+    // 按钮 disable + 改文案 + finally 恢复，与 syncToRepo() 的样板一致
+    const originalText = addQuoteBtn.textContent;
+    addQuoteBtn.disabled = true;
+    addQuoteBtn.textContent = "提交中…";
+    try {
+      const n = await addMindsetQuotes(quoteInput ? quoteInput.value : "", resolveToken());
+      if (n > 0 && quoteInput) {
+        quoteInput.value = "";
+        renderQuotePreview();
+      }
+    } finally {
+      addQuoteBtn.disabled = false;
+      addQuoteBtn.textContent = originalText || "添加到语录库";
+    }
+  });
+}
+
 // ============================ 跨标签页同步 ============================
 
 window.addEventListener("storage", (event) => {
@@ -751,6 +792,7 @@ function init() {
   renderPrefs();
   resetPlanForm();
   renderAll();
+  renderQuotePreview();
 
   uiTooltip(document.body);
   uiRevealOnLoad(appRoot);

@@ -1,0 +1,76 @@
+name: 心跳保活
+
+# 为什么需要这个工作流？
+#   GitHub 对「60 天无仓库活动」的仓库会【自动停用全部 on.schedule 工作流】，
+#   停用是静默的：钉钉提醒与早晚心法会直接不再触发，Actions 页面也不会变红。
+#   本仓库的三个 schedule 工作流恰好都可能长期不产生提交：
+#     · daily-quote.yml / daily-quote-evening.yml → permissions: contents: read，从不 commit
+#     · dingtalk-reminder.yml → 只有「有到期计划 + 当天未推过 + 发送成功」三条同时满足才 commit
+#     · sync.yml 不是 schedule，且只有用户操作网页才触发
+#   ⇒ 用户两个月不打卡、计划全停用，就会静默失去所有定时能力。
+#   本工作流每月 1 日 / 21 日各产生一次提交，最长间隔 20 天，留 3 倍安全余量。
+on:
+  schedule:
+    # UTC 04:00 = 北京 12:00。刻意避开既有三个 cron（01:10 / 13:10 / */15）的时段。
+    # 1 日 → 21 日 = 20 天；21 日 → 次月 1 日 = 8~11 天。最长间隔 20 天 << 60 天。
+    - cron: "0 4 1,21 * *"
+  # 保留手动触发：上线后立刻跑一次验证，也可在怀疑被停用时人工救急
+  workflow_dispatch:
+
+# 需要写权限来提交 data/heartbeat.json
+permissions:
+  contents: write
+
+concurrency:
+  group: keepalive          # 独立组名，与 sync-checkins / dingtalk-reminder / daily-quote(-evening) 均不冲突
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0      # push 冲突要 rebase 重试，浅克隆会 rebase 失败
+
+      - name: 写入心跳时间戳
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os
+          os.makedirs("data", exist_ok=True)
+          payload = {
+              "updatedAt": datetime.datetime.now(datetime.timezone.utc)
+                                   .strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "note": "keepalive 专用：仅为重置 GitHub 60 天无活动计时。前端与其它工作流均不读取此文件。",
+          }
+          # 行尾用默认 LF + 末尾补一个换行，与仓库里其它 data/*.json 的 blob 一致
+          with open(os.path.join("data", "heartbeat.json"), "w", encoding="utf-8") as f:
+              json.dump(payload, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          print("heartbeat:", payload["updatedAt"])
+          PY
+
+      - name: 提交并推送
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          # ⚠️ 只 add heartbeat.json。【绝对不要】写 `git add data/`：
+          #    reminder-state.json 由 dingtalk-reminder.yml 独占写；
+          #    plans/checkins.json 由 sync.yml 独占写；
+          #    quotes.json 由 add-quotes.yml 独占写。
+          #    任何一处越界，都会用检出时的旧快照覆盖别人刚写的新内容。
+          git add data/heartbeat.json
+
+          if git diff --cached --quiet; then
+            echo "心跳无变化（时间戳每次都不同，正常不会走到这里）"
+          else
+            git commit -m "chore(keepalive): 心跳保活 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push || {
+              echo "推送冲突，rebase 后重试"
+              git pull --rebase --autostash
+              git push
+            }
+          fi
