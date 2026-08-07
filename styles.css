@@ -1424,3 +1424,1684 @@ html.no-motion .reveal {
     justify-content: flex-end;
   }
 }
+
+/* =====================================================================
+   ██  v4「星河契约」样式层  ██
+   ---------------------------------------------------------------------
+   本节【只新增】，不改写上面任何 v3 选择器。
+   继续遵守动效契约：
+     · 所有 animation / transition 写在
+       @media (prefers-reduced-motion: no-preference) 内（见本节末尾）；
+     · 上面的 html.no-motion / prefers-reduced-motion:reduce 两个 !important
+       兜底块位于本节之前，但因为带 !important，依然能压住这里的动效；
+     · 每条 keyframes 的 100% 都是「合理静止态」，
+       这样被降级成 0.001ms 时会直接落到好看的终态，而不是消失或全黑。
+   ===================================================================== */
+
+/* ============================ 通用小件 ============================ */
+
+/* 只给读屏器的文本 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 弹层打开时锁滚动，避免背景跟着一起动 */
+body.is-locked {
+  overflow: hidden;
+}
+
+/* ============================ 星图页：页头 ============================ */
+
+.sky-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  text-align: left;
+}
+.sky-hero-text {
+  min-width: 0;
+}
+.sky-hero .hero-title,
+.sky-hero .hero-subtitle {
+  text-align: left;
+}
+.sky-hero .hero-subtitle {
+  margin-top: 6px;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+/* 设置入口：一颗可以按的小星星 */
+.gear-btn {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  color: var(--gold-from);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.gear-btn:hover {
+  border-color: rgba(var(--gold-glow), 0.55);
+  box-shadow: 0 0 18px rgba(var(--gold-glow), 0.28);
+}
+.gear-btn:focus-visible {
+  outline: 2px solid rgba(var(--gold-glow), 0.8);
+  outline-offset: 3px;
+}
+.gear-icon {
+  display: block;
+}
+
+/* ============================ 星图页：画布 ============================ */
+
+.sky-card {
+  padding-bottom: 14px;
+}
+.sky-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.btn-new-star {
+  flex-shrink: 0;
+  letter-spacing: 1px;
+}
+
+/* 星图统计一行 */
+.sky-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.sky-meta-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.sky-meta-num {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.sky-meta-item.is-lit .sky-meta-num {
+  color: var(--gold-from);
+}
+.sky-meta-item.is-dim .sky-meta-num {
+  color: var(--ink-faint);
+}
+.sky-meta-label {
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+}
+
+/* 画布本体：一块深空 */
+.sky-map {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 340px;
+  max-height: 560px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(180, 205, 255, 0.1);
+  overflow: hidden;
+  background-color: #050a18;
+  background-image:
+    radial-gradient(ellipse 60% 45% at 22% 28%, rgba(94, 76, 190, 0.34), transparent 70%),
+    radial-gradient(ellipse 52% 40% at 78% 68%, rgba(30, 110, 140, 0.3), transparent 72%),
+    radial-gradient(ellipse 70% 55% at 55% 108%, rgba(18, 34, 82, 0.55), transparent 70%),
+    linear-gradient(160deg, #0a1330 0%, #060b1e 55%, #04081a 100%);
+}
+/* 一层极淡的星尘噪点，让空白处不至于太"平" */
+.sky-map::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 34% 62%, rgba(255, 255, 255, 0.35), transparent),
+    radial-gradient(1px 1px at 58% 24%, rgba(255, 255, 255, 0.45), transparent),
+    radial-gradient(1px 1px at 71% 81%, rgba(255, 255, 255, 0.3), transparent),
+    radial-gradient(1px 1px at 88% 42%, rgba(255, 255, 255, 0.42), transparent),
+    radial-gradient(1px 1px at 46% 91%, rgba(255, 255, 255, 0.28), transparent),
+    radial-gradient(1px 1px at 8% 74%, rgba(255, 255, 255, 0.32), transparent),
+    radial-gradient(1px 1px at 93% 12%, rgba(255, 255, 255, 0.36), transparent);
+}
+
+/* 星座连线层 */
+.sky-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.sky-link {
+  stroke: rgba(174, 200, 255, 0.16);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+}
+.sky-link.is-bright {
+  stroke: rgba(242, 193, 78, 0.34);
+  stroke-dasharray: 4 4;
+}
+
+/* 星点层 */
+.sky-stars {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---- 单颗星 ---- */
+.sky-star {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: var(--star-size, 16px);
+  height: var(--star-size, 16px);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+  display: block;
+}
+.sky-star:focus-visible {
+  outline: none;
+}
+.sky-star:focus-visible .star-core {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+}
+
+/* 光环 */
+.star-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--star-halo, 42px);
+  height: var(--star-halo, 42px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    rgba(var(--t-glow), 0.42) 0%,
+    rgba(var(--t-glow), 0.16) 38%,
+    rgba(var(--t-glow), 0) 70%
+  );
+}
+
+/* 十字星芒 */
+.star-beam {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--star-halo, 42px) * 0.86);
+  height: calc(var(--star-halo, 42px) * 0.86);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.75;
+}
+.star-beam::before,
+.star-beam::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(
+    var(--beam-dir, 90deg),
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+.star-beam::before {
+  --beam-dir: 90deg;
+  width: 100%;
+  height: 1.5px;
+}
+.star-beam::after {
+  --beam-dir: 0deg;
+  width: 1.5px;
+  height: 100%;
+}
+
+/* 星芯 */
+.star-core {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #ffffff 0%, var(--t-from) 52%, var(--t-to) 100%);
+  box-shadow: 0 0 10px rgba(var(--t-glow), 0.75);
+}
+
+/* 名牌 */
+.star-tag {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + calc(var(--star-halo, 42px) * 0.28));
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 132px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(6, 12, 28, 0.62);
+  border: 1px solid rgba(180, 205, 255, 0.12);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.star-tag-icon {
+  font-size: 0.78rem;
+}
+.star-tag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sky-star:hover .star-tag,
+.sky-star:focus-visible .star-tag {
+  color: var(--ink);
+  border-color: rgba(var(--t-glow), 0.45);
+}
+
+/* 亮度分档：越亮，光环与星芒越张扬 */
+.sky-star.lvl-1 .star-beam { opacity: 0.3; }
+.sky-star.lvl-2 .star-beam { opacity: 0.5; }
+.sky-star.lvl-3 .star-beam { opacity: 0.7; }
+.sky-star.lvl-4 .star-beam { opacity: 0.95; }
+.sky-star.lvl-4 .star-core {
+  box-shadow: 0 0 16px rgba(var(--t-glow), 0.95), 0 0 34px rgba(var(--t-glow), 0.4);
+}
+
+/* 熄灭：只剩一点冷灰余烬 */
+.sky-star.is-off .star-core {
+  background: radial-gradient(circle at 35% 30%, #6b7896 0%, #3a465f 70%, #26304a 100%);
+  box-shadow: none;
+}
+.sky-star.is-off .star-halo,
+.sky-star.is-off .star-beam {
+  opacity: 0.12;
+}
+.sky-star.is-off .star-tag {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+  text-decoration-color: rgba(114, 134, 168, 0.5);
+}
+
+/* ---- 空星空 ---- */
+.sky-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 300px;
+  padding: 32px 20px;
+  border-radius: var(--radius);
+  border: 1px dashed rgba(180, 205, 255, 0.16);
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 40%, rgba(70, 60, 150, 0.24), transparent 72%),
+    linear-gradient(160deg, #0a1330, #05091c);
+  text-align: center;
+}
+.sky-empty-mark svg {
+  width: 34px;
+  height: 34px;
+  fill: rgba(242, 193, 78, 0.72);
+  filter: drop-shadow(0 0 10px rgba(242, 193, 78, 0.45));
+}
+.sky-empty-line {
+  margin: 0;
+  max-width: 30ch;
+  font-size: 1.02rem;
+  color: var(--ink-muted);
+  font-style: italic;
+  letter-spacing: 0.5px;
+}
+.sky-empty-cta {
+  margin-top: 4px;
+  padding: 9px 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--gold-glow), 0.5);
+  background: linear-gradient(135deg, var(--gold-from), var(--gold-to));
+  color: #241a05;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.sky-empty-cta:hover {
+  filter: brightness(1.08);
+}
+.sky-empty-cta:focus-visible {
+  outline: 2px solid rgba(var(--gold-glow), 0.85);
+  outline-offset: 3px;
+}
+
+.sky-hint {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+/* ============================ 弹层：星体编辑舱 ============================ */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 14px;
+}
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 20, 0.72);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 100%);
+  max-height: min(88vh, 860px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-border);
+  background: linear-gradient(160deg, rgba(20, 32, 62, 0.96), rgba(11, 18, 40, 0.97));
+  box-shadow: var(--glass-shadow), 0 0 60px rgba(90, 120, 220, 0.16);
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.modal-title {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.modal-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.modal-close:hover {
+  color: var(--ink);
+  border-color: rgba(180, 205, 255, 0.3);
+}
+.modal-close:focus-visible {
+  outline: 2px solid var(--primary-hover);
+  outline-offset: 2px;
+}
+.modal-body {
+  padding: 18px 20px 22px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---- 星体简报 ---- */
+.star-brief {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(var(--t-glow), 0.24);
+  background: linear-gradient(
+    135deg,
+    rgba(var(--t-glow), 0.14),
+    rgba(255, 255, 255, 0.02)
+  );
+}
+.star-brief.is-new {
+  border-color: rgba(var(--gold-glow), 0.24);
+  background: linear-gradient(135deg, rgba(var(--gold-glow), 0.12), rgba(255, 255, 255, 0.02));
+}
+.star-brief-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(6, 12, 28, 0.5);
+  border: 1px solid rgba(var(--t-glow), 0.3);
+  font-size: 1.2rem;
+}
+.star-brief-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.star-brief-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  word-break: break-word;
+}
+.star-brief-sub {
+  margin: 3px 0 0;
+  font-size: 0.84rem;
+  color: var(--ink-muted);
+}
+.star-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+.star-chip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--t-glow), 0.32);
+  background: rgba(var(--t-glow), 0.1);
+  font-size: 0.75rem;
+  color: var(--ink);
+}
+.star-chip.is-muted {
+  border-color: rgba(180, 205, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink-faint);
+}
+.star-chip.is-off {
+  border-color: rgba(229, 72, 77, 0.4);
+  background: rgba(229, 72, 77, 0.12);
+  color: #f3a2a4;
+}
+
+/* ---- 熄灭此星（克制的危险区） ---- */
+.danger-zone {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(229, 72, 77, 0.26);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.extinguish-btn {
+  flex-shrink: 0;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 72, 77, 0.45);
+  background: rgba(229, 72, 77, 0.08);
+  color: #ef8a8d;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+.extinguish-btn:hover {
+  background: rgba(229, 72, 77, 0.18);
+  color: #ffd7d8;
+  border-color: var(--danger-hover);
+}
+.extinguish-btn:focus-visible {
+  outline: 2px solid var(--danger-hover);
+  outline-offset: 2px;
+}
+.danger-note {
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+}
+
+/* ============================ 弹层：观星台设置抽屉 ============================ */
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 20, 0.66);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(430px, 94vw);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--glass-border);
+  background: linear-gradient(180deg, rgba(16, 26, 52, 0.98), rgba(9, 15, 34, 0.99));
+  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.5);
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+.drawer-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.drawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 18px 28px;
+}
+.drawer-sec {
+  padding: 14px 0 16px;
+  border-bottom: 1px solid rgba(180, 205, 255, 0.08);
+}
+.drawer-sec:first-child {
+  padding-top: 0;
+}
+.drawer-sec:last-of-type {
+  border-bottom: 0;
+}
+.drawer-sec-title {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.drawer-about {
+  margin: 8px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(180, 205, 255, 0.08);
+  font-size: 0.76rem;
+  line-height: 1.7;
+  color: var(--ink-faint);
+}
+
+/* ============================ 天文台：天象四宫格 ============================ */
+
+.stat-grid--astro {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+.stat-grid--astro .stat-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 14px;
+  min-height: 92px;
+}
+.stat-glyph {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--t-glow), 0.28);
+  background: radial-gradient(circle at 36% 30%, rgba(var(--t-glow), 0.3), rgba(var(--t-glow), 0.05) 70%);
+  font-size: 1.2rem;
+  color: var(--t-from);
+}
+.stat-astro-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.stat-astro-text .stat-value {
+  font-size: 1.65rem;
+}
+.stat-astro-text .stat-label {
+  margin-top: 2px;
+}
+.stat-tile--comet .stat-comet,
+.stat-tile--moon .stat-moon {
+  flex-shrink: 0;
+}
+.stat-tile--comet .stat-comet {
+  width: 96px;
+}
+.stat-tile--moon .stat-moon {
+  width: 64px;
+  height: 64px;
+}
+/* 仪表盘里的月亮不重复显示数字，交给旁边的 stat-value */
+.stat-moon .moon-label {
+  display: none;
+}
+
+/* ---- 月相 ---- */
+.moon {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.moon svg {
+  display: block;
+  overflow: visible;
+}
+.moon-dark {
+  fill: #131c34;
+  stroke: rgba(180, 205, 255, 0.12);
+  stroke-width: 1;
+}
+.moon-lit {
+  filter: drop-shadow(0 0 8px rgba(246, 231, 184, 0.45));
+}
+.moon-craters circle {
+  fill: rgba(150, 130, 80, 0.22);
+}
+.moon-rim {
+  stroke: rgba(255, 253, 242, 0.2);
+  stroke-width: 1;
+}
+.moon-label {
+  margin-top: 6px;
+  text-align: center;
+  line-height: 1.25;
+}
+.moon-label-main {
+  display: block;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.moon-label-sub {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--ink-muted);
+}
+
+/* ---- 彗星 ---- */
+.comet {
+  display: block;
+  width: 100%;
+}
+.comet svg {
+  display: block;
+  overflow: visible;
+}
+/* 尾巴的填充是 SVG 里的线性渐变，这里只补形态修饰 */
+.comet-tail {
+  filter: blur(0.4px);
+}
+.comet-head {
+  fill: #fffdf2;
+  filter: drop-shadow(0 0 7px rgba(var(--t-glow), 0.9));
+}
+.comet-spark {
+  fill: rgba(255, 255, 255, 0.6);
+}
+.comet.is-idle {
+  opacity: 0.42;
+}
+.comet.is-idle .comet-head {
+  fill: #9aa8c4;
+  filter: none;
+}
+
+/* ============================ 天文台：今晚的星轨 ============================ */
+
+.rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+/* 贯穿全列的轨道线 */
+.rail::before {
+  content: "";
+  position: absolute;
+  left: 66px;
+  top: 14px;
+  bottom: 14px;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    rgba(180, 205, 255, 0) 0%,
+    rgba(180, 205, 255, 0.22) 12%,
+    rgba(180, 205, 255, 0.22) 88%,
+    rgba(180, 205, 255, 0) 100%
+  );
+  pointer-events: none;
+}
+.rail-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 54px 24px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(180, 205, 255, 0.07);
+}
+.rail-item:last-child {
+  border-bottom: 0;
+}
+.rail-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+}
+.rail-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+.rail-star svg {
+  width: 17px;
+  height: 17px;
+  fill: rgba(180, 205, 255, 0.32);
+}
+.rail-body {
+  min-width: 0;
+  display: block;
+}
+.rail-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  word-break: break-word;
+}
+.rail-icon {
+  font-size: 1.02rem;
+}
+.rail-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+.rail-status {
+  flex-shrink: 0;
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(180, 205, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+/* 已点亮：星芒填成主题色，状态胶囊转绿 */
+.rail-item.is-done .rail-star svg {
+  fill: var(--t-from);
+  filter: drop-shadow(0 0 7px rgba(var(--t-glow), 0.8));
+}
+.rail-item.is-done .rail-status {
+  border-color: rgba(70, 199, 138, 0.42);
+  background: rgba(70, 199, 138, 0.12);
+  color: var(--success);
+}
+/* 已过时辰但没点亮：整行压暗，星芒留一点红 */
+.rail-item.is-passed:not(.is-done) .rail-time,
+.rail-item.is-passed:not(.is-done) .rail-name {
+  color: var(--ink-faint);
+}
+.rail-item.is-due .rail-star svg {
+  fill: rgba(229, 72, 77, 0.55);
+}
+.rail-item.is-due .rail-status {
+  border-color: rgba(229, 72, 77, 0.36);
+  color: #e79a9c;
+}
+/* 即将亮起：加一圈脉冲底座（动效在末尾的 no-preference 块里） */
+.rail-item.is-now .rail-star {
+  border-radius: 50%;
+  background: rgba(var(--t-glow), 0.16);
+}
+.rail-item.is-now .rail-star svg {
+  fill: var(--t-from);
+}
+.rail-item.is-now .rail-status {
+  border-color: rgba(var(--t-glow), 0.45);
+  background: rgba(var(--t-glow), 0.12);
+  color: var(--ink);
+}
+
+/* ============================ 星点热力图（两页共用） ============================ */
+
+.starheat {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.starheat svg {
+  display: block;
+  min-width: 320px;
+}
+.sh-dot {
+  fill: rgba(180, 205, 255, 0.14);
+}
+.sh-l0 { fill: rgba(180, 205, 255, 0.12); }
+.sh-l1 { fill: rgba(42, 157, 143, 0.55); }
+.sh-l2 { fill: rgba(42, 157, 143, 0.9); }
+.sh-l3 { fill: rgba(242, 193, 78, 0.9); }
+.sh-l4 { fill: #ffe08a; }
+.sh-l2,
+.sh-l3,
+.sh-l4 {
+  filter: drop-shadow(0 0 3px currentColor);
+}
+.sh-l3,
+.sh-l4 {
+  color: rgba(242, 193, 78, 0.85);
+}
+.sh-l2 {
+  color: rgba(42, 157, 143, 0.85);
+}
+/* 手动点亮的日子额外带一圈细描边，肉眼可区分来源 */
+.sh-dot--manual {
+  stroke: rgba(242, 193, 78, 0.55);
+  stroke-width: 0.6;
+}
+.sh-swatch {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+.sh-swatch svg {
+  width: 14px;
+  height: 14px;
+  min-width: 0;
+}
+.sh-swatch.sh-l0 circle { fill: rgba(180, 205, 255, 0.14); }
+.sh-swatch.sh-l1 circle { fill: rgba(42, 157, 143, 0.55); }
+.sh-swatch.sh-l2 circle { fill: rgba(42, 157, 143, 0.9); }
+.sh-swatch.sh-l3 circle { fill: rgba(242, 193, 78, 0.9); }
+.sh-swatch.sh-l4 circle { fill: #ffe08a; }
+
+/* ============================ 天文台：星语 ============================ */
+
+.quote-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 120% at 50% 0%, rgba(139, 122, 232, 0.16), transparent 70%),
+    var(--glass-bg);
+}
+.skyquote {
+  margin: 0;
+  padding: 14px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.skyquote-mark svg {
+  width: 24px;
+  height: 24px;
+  fill: rgba(242, 193, 78, 0.7);
+  filter: drop-shadow(0 0 9px rgba(242, 193, 78, 0.5));
+}
+.skyquote-text {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 1.22rem;
+  line-height: 1.85;
+  font-style: italic;
+  letter-spacing: 1px;
+  color: var(--ink);
+  text-shadow: 0 0 22px rgba(174, 200, 255, 0.28);
+}
+.skyquote-from {
+  font-size: 0.82rem;
+  letter-spacing: 2px;
+  color: var(--ink-faint);
+}
+
+/* ============================ 星历：里程碑贺词 ============================ */
+
+.cheer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: var(--gap);
+  padding: 13px 18px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(180, 205, 255, 0.14);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+.cheer.is-unlocked {
+  border-color: rgba(242, 193, 78, 0.36);
+  background: linear-gradient(135deg, rgba(242, 193, 78, 0.14), rgba(255, 255, 255, 0.02));
+}
+.cheer-icon {
+  flex-shrink: 0;
+  font-size: 1.35rem;
+}
+.cheer-text {
+  margin: 0;
+  font-size: 0.98rem;
+  letter-spacing: 0.5px;
+  color: var(--ink);
+}
+.cheer.is-pending .cheer-text {
+  color: var(--ink-muted);
+}
+
+/* ============================ 星历：星轨攀升 ============================ */
+
+.startrack {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 6px 2px 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.track {
+  flex: 1 0 58px;
+  max-width: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.track-rail {
+  position: relative;
+  width: 100%;
+  height: 190px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    rgba(180, 205, 255, 0.03),
+    rgba(180, 205, 255, 0.09)
+  );
+  border: 1px solid rgba(180, 205, 255, 0.08);
+  overflow: visible;
+}
+.track-trail {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    rgba(var(--t-glow), 0.85),
+    rgba(var(--t-glow), 0.12)
+  );
+}
+.track-star {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, 50%);
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.track-star-glow {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--t-glow), 0.4) 0%, rgba(var(--t-glow), 0) 70%);
+}
+.track-star-icon {
+  position: relative;
+  z-index: 1;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(6, 12, 28, 0.75);
+  border: 1px solid rgba(var(--t-glow), 0.5);
+  font-size: 0.95rem;
+}
+.track:not(.is-active) .track-star-icon {
+  border-color: rgba(180, 205, 255, 0.16);
+  filter: grayscale(0.7);
+  opacity: 0.7;
+}
+.track:not(.is-active) .track-star-glow {
+  opacity: 0.25;
+}
+.track-num {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--t-from);
+}
+.track:not(.is-active) .track-num {
+  color: var(--ink-faint);
+}
+.track-name {
+  max-width: 100%;
+  font-size: 0.74rem;
+  color: var(--ink-muted);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.startrack-axis {
+  margin: 10px 0 0;
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+/* ============================ 星历：月度星历 ============================ */
+
+.month-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.month-nav .mini-btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.monthgrid {
+  width: 100%;
+}
+.mg-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.mg-title {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.mg-sum {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+.mg-dows,
+.mg-body {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.mg-dows {
+  margin-bottom: 6px;
+}
+.mg-dow {
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+}
+.mg-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(180, 205, 255, 0.07);
+  background: rgba(255, 255, 255, 0.025);
+  font-variant-numeric: tabular-nums;
+}
+.mg-cell.is-out {
+  opacity: 0.32;
+}
+.mg-cell.is-future {
+  opacity: 0.22;
+}
+.mg-cell.is-today {
+  border-color: rgba(242, 193, 78, 0.6);
+  box-shadow: 0 0 0 1px rgba(242, 193, 78, 0.22) inset;
+}
+.mg-day {
+  position: relative;
+  z-index: 1;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+}
+.mg-cell.is-lit .mg-day {
+  color: rgba(8, 14, 30, 0.9);
+  font-weight: 700;
+}
+.mg-spark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.mg-spark svg {
+  width: 88%;
+  height: 88%;
+}
+.mg-cell.lv-1 .mg-spark svg path { fill: rgba(42, 157, 143, 0.55); }
+.mg-cell.lv-2 .mg-spark svg path { fill: rgba(42, 157, 143, 0.85); }
+.mg-cell.lv-3 .mg-spark svg path { fill: rgba(242, 193, 78, 0.85); }
+.mg-cell.lv-4 .mg-spark svg path { fill: #ffe08a; }
+.mg-cell.lv-3 .mg-spark,
+.mg-cell.lv-4 .mg-spark {
+  filter: drop-shadow(0 0 6px rgba(242, 193, 78, 0.55));
+}
+.mg-cell.lv-1 .mg-day,
+.mg-cell.lv-2 .mg-day {
+  color: rgba(234, 241, 255, 0.92);
+}
+
+/* ============================ 星历：星座亮度条 ============================ */
+
+.brightbars {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.bright-row {
+  display: grid;
+  grid-template-columns: 26px minmax(72px, 1fr) 3fr 44px;
+  align-items: center;
+  gap: 10px;
+}
+.bright-icon {
+  font-size: 1.02rem;
+  text-align: center;
+}
+.bright-name {
+  min-width: 0;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bright-bar {
+  position: relative;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: visible;
+}
+.bright-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--t-to), var(--t-from));
+}
+.bright-tip-star {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  pointer-events: none;
+}
+.bright-tip-star svg {
+  width: 15px;
+  height: 15px;
+  fill: var(--t-from);
+}
+.bright-row.lvl-0 .bright-tip-star {
+  opacity: 0.28;
+}
+.bright-row.lvl-3 .bright-tip-star svg,
+.bright-row.lvl-4 .bright-tip-star svg {
+  filter: drop-shadow(0 0 6px rgba(var(--t-glow), 0.9));
+}
+.bright-row.lvl-4 .bright-fill {
+  box-shadow: 0 0 12px rgba(var(--t-glow), 0.5);
+}
+.bright-pct {
+  text-align: right;
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+
+/* =====================================================================
+   v4 动效 —— 与 v3 同样包在 prefers-reduced-motion: no-preference 内。
+   每条 keyframes 的 100% 都是稳定终态，降级时不会消失。
+   ===================================================================== */
+@media (prefers-reduced-motion: no-preference) {
+  /* B1 星点呼吸（相位由 --tw-delay / --tw-period 错开） */
+  @keyframes star-breathe {
+    0% { opacity: 0.55; transform: translate(-50%, -50%) scale(0.9); }
+    50% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+    100% { opacity: 0.88; transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes star-beam-flare {
+    0% { opacity: 0.25; }
+    50% { opacity: 1; }
+    100% { opacity: 0.75; }
+  }
+  .sky-star:not(.is-off) .star-halo {
+    animation: star-breathe var(--tw-period, 3600ms) ease-in-out
+      var(--tw-delay, 0ms) infinite alternate;
+  }
+  .sky-star:not(.is-off) .star-beam {
+    animation: star-beam-flare calc(var(--tw-period, 3600ms) * 1.35) ease-in-out
+      var(--tw-delay, 0ms) infinite alternate;
+  }
+  .sky-star {
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .sky-star:hover,
+  .sky-star:focus-visible {
+    transform: translate(-50%, -50%) scale(1.22);
+    z-index: 3;
+  }
+  .star-tag {
+    transition: color 160ms ease, border-color 160ms ease;
+  }
+
+  /* B2 星座连线缓慢流动 */
+  @keyframes link-flow {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: -16; }
+  }
+  .sky-link {
+    animation: link-flow 5s linear infinite;
+  }
+  .sky-link.is-bright {
+    animation-duration: 3.4s;
+  }
+
+  /* B3 空星空的引导星轻轻脉动 */
+  @keyframes empty-pulse {
+    0% { opacity: 0.5; transform: scale(0.94); }
+    50% { opacity: 1; transform: scale(1.05); }
+    100% { opacity: 0.85; transform: scale(1); }
+  }
+  .sky-empty-mark {
+    display: inline-block;
+    animation: empty-pulse 3.6s ease-in-out infinite alternate;
+  }
+
+  /* B4 弹层进场 */
+  @keyframes modal-in {
+    from { opacity: 0; transform: translateY(18px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes drawer-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  .modal-panel {
+    animation: modal-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .modal-backdrop,
+  .drawer-backdrop {
+    animation: fade-in 200ms ease-out both;
+  }
+  .drawer-panel {
+    animation: drawer-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* B5 彗尾碎星漂移 + 头部辉光 */
+  @keyframes comet-glow {
+    0% { opacity: 0.7; }
+    50% { opacity: 1; }
+    100% { opacity: 0.9; }
+  }
+  .comet:not(.is-idle) .comet-head {
+    animation: comet-glow 2.4s ease-in-out infinite alternate;
+  }
+  .comet:not(.is-idle) .comet-spark {
+    animation: comet-glow 1.8s ease-in-out infinite alternate;
+  }
+
+  /* B6 今晚星轨：即将亮起的那一颗脉冲 */
+  @keyframes rail-halo {
+    0% { box-shadow: 0 0 0 0 rgba(var(--t-glow), 0.5); }
+    100% { box-shadow: 0 0 0 10px rgba(var(--t-glow), 0); }
+  }
+  .rail-item.is-now .rail-star {
+    animation: rail-halo 2.1s ease-out infinite;
+  }
+
+  /* B7 星点热力图悬停 */
+  .sh-dot {
+    transition: r 130ms ease-out, opacity 130ms ease-out;
+  }
+  .sh-dot:hover {
+    opacity: 1;
+    stroke: rgba(255, 255, 255, 0.8);
+    stroke-width: 0.8;
+  }
+
+  /* B8 月历里的星星逐个亮起 */
+  @keyframes mg-pop {
+    from { opacity: 0; transform: scale(0.6); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .mg-cell.is-lit .mg-spark {
+    animation: mg-pop 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .mg-cell {
+    transition: border-color 140ms ease, background 140ms ease;
+  }
+  .mg-cell:hover {
+    border-color: rgba(180, 205, 255, 0.28);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  /* B9 星轨攀升：升到位 + 顶端星微浮 */
+  @keyframes track-rise {
+    from { height: 0; }
+  }
+  @keyframes track-float {
+    0% { transform: translate(-50%, 50%) translateY(0); }
+    100% { transform: translate(-50%, 50%) translateY(-4px); }
+  }
+  .track-trail {
+    animation: track-rise 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .track.is-active .track-star {
+    animation: track-float 2.8s ease-in-out infinite alternate;
+  }
+
+  /* B10 亮度条填充 */
+  @keyframes bright-grow {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+  .bright-fill {
+    transform-origin: left center;
+    animation: bright-grow 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* B11 星语辉光呼吸 */
+  @keyframes quote-glow {
+    0% { text-shadow: 0 0 14px rgba(174, 200, 255, 0.16); }
+    100% { text-shadow: 0 0 30px rgba(174, 200, 255, 0.42); }
+  }
+  .skyquote-text {
+    animation: quote-glow 5.5s ease-in-out infinite alternate;
+  }
+
+  /* B12 里程碑贺词的金边呼吸 */
+  @keyframes cheer-glow {
+    0% { box-shadow: 0 0 0 0 rgba(242, 193, 78, 0.18); }
+    100% { box-shadow: 0 0 26px 0 rgba(242, 193, 78, 0.24); }
+  }
+  .cheer.is-unlocked {
+    animation: cheer-glow 3.4s ease-in-out infinite alternate;
+  }
+
+  /* B13 设置入口按钮 */
+  .gear-btn {
+    transition: transform 200ms ease-out, box-shadow 200ms ease-out,
+      border-color 200ms ease-out;
+  }
+  .gear-btn:hover {
+    transform: rotate(72deg) scale(1.06);
+  }
+  .sky-empty-cta,
+  .extinguish-btn,
+  .modal-close {
+    transition: background 150ms ease, color 150ms ease, filter 150ms ease,
+      border-color 150ms ease;
+  }
+}
+
+/* =====================================================================
+   v4 减少动效兜底
+   上面 html.no-motion / prefers-reduced-motion:reduce 的 !important 规则
+   会把时长压到 0.001ms —— 动画因此直接落到 100% 终态。
+   这里只补几处「终态仍需修正」的静态样式。
+   ===================================================================== */
+html.no-motion .track-trail,
+html.no-motion .bright-fill,
+html.no-motion .mg-cell.is-lit .mg-spark,
+html.no-motion .modal-panel,
+html.no-motion .drawer-panel,
+html.no-motion .modal-backdrop,
+html.no-motion .drawer-backdrop {
+  opacity: 1 !important;
+  transform: none !important;
+}
+html.no-motion .bright-fill {
+  /* 终态是 scaleX(1)，但上面统一清了 transform，这里明确保住宽度语义 */
+  transform: scaleX(1) !important;
+}
+html.no-motion .track-star,
+html.no-motion .sky-star:not(.is-off) .star-halo {
+  animation: none !important;
+}
+html.no-motion .sky-star:not(.is-off) .star-halo {
+  opacity: 1;
+}
+html.no-motion .sky-link {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track-trail,
+  .bright-fill,
+  .mg-cell.is-lit .mg-spark,
+  .modal-panel,
+  .drawer-panel,
+  .modal-backdrop,
+  .drawer-backdrop {
+    opacity: 1 !important;
+  }
+  .bright-fill {
+    transform: scaleX(1) !important;
+  }
+  .sky-star:not(.is-off) .star-halo,
+  .sky-link,
+  .track-star {
+    animation: none !important;
+  }
+}
+
+/* =====================================================================
+   v4 响应式 —— 窄屏不出现横向滚动
+   ===================================================================== */
+@media (max-width: 900px) {
+  .bright-row {
+    grid-template-columns: 24px minmax(64px, 1fr) 2fr 42px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* 页头：设置按钮与标题同排但不挤 */
+  .sky-hero {
+    gap: 10px;
+  }
+  .gear-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  /* 星图在竖屏给更多纵向空间 */
+  .sky-map {
+    aspect-ratio: 3 / 4;
+    min-height: 400px;
+    max-height: none;
+  }
+  .star-tag {
+    max-width: 96px;
+    font-size: 0.66rem;
+    padding: 1px 6px;
+  }
+  .sky-card-head {
+    gap: 10px;
+  }
+  .btn-new-star {
+    width: 100%;
+  }
+  .sky-meta {
+    gap: 14px;
+  }
+  .sky-meta-num {
+    font-size: 1.15rem;
+  }
+
+  /* 弹层：贴底大卡，避免小屏中间弹窗被键盘挤没 */
+  .modal {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .modal-panel {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  .modal-body {
+    padding: 16px 16px 24px;
+  }
+  .drawer-panel {
+    width: 100%;
+    border-left: 0;
+  }
+  .drawer-body {
+    padding: 14px 16px 28px;
+  }
+
+  /* 天象四宫格：小屏两列，彗星与月亮缩一号 */
+  .stat-grid--astro {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat-grid--astro .stat-tile {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px;
+    min-height: 0;
+  }
+  .stat-astro-text .stat-value {
+    font-size: 1.4rem;
+  }
+  .stat-glyph {
+    width: 34px;
+    height: 34px;
+    font-size: 1rem;
+  }
+  .stat-tile--comet .stat-comet {
+    width: 100%;
+  }
+  .stat-tile--moon .stat-moon {
+    width: 48px;
+    height: 48px;
+  }
+
+  /* 今晚星轨：时间与状态换行，正文占满 */
+  .rail::before {
+    left: 46px;
+  }
+  .rail-item {
+    grid-template-columns: 42px 20px 1fr;
+    row-gap: 4px;
+  }
+  .rail-status {
+    grid-column: 3 / 4;
+    justify-self: start;
+  }
+  .rail-star svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  /* 星语 */
+  .skyquote-text {
+    font-size: 1.06rem;
+    line-height: 1.75;
+  }
+
+  /* 星轨攀升：轨道压矮，横向可滑但不撑破页面 */
+  .track-rail {
+    height: 150px;
+  }
+  .track {
+    flex: 0 0 54px;
+  }
+  .track-star,
+  .track-star-icon {
+    width: 26px;
+    height: 26px;
+  }
+
+  /* 月历 */
+  .mg-dows,
+  .mg-body {
+    gap: 4px;
+  }
+  .mg-cell {
+    min-height: 30px;
+    border-radius: 8px;
+  }
+  .mg-day {
+    font-size: 0.7rem;
+  }
+
+  /* 亮度条：图标 + 名称一行，条与百分比一行 */
+  .bright-row {
+    grid-template-columns: 24px 1fr 44px;
+    row-gap: 5px;
+  }
+  .bright-bar {
+    grid-column: 1 / 4;
+  }
+  .bright-pct {
+    grid-column: 3 / 4;
+    grid-row: 1 / 2;
+  }
+}

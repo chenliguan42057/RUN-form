@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark" />
-  <title>统计 · 星河自律</title>
+  <title>星历 · 星河契约</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -13,17 +13,20 @@
     <div id="nav-slot"></div>
 
     <header class="hero hero-small">
-      <h1 class="hero-title">星河自律</h1>
-      <p class="hero-subtitle">星图 · 趋势 · 里程碑</p>
+      <h1 class="hero-title">星历</h1>
+      <p class="hero-subtitle">我的星途 · 一路点亮过的日子</p>
     </header>
 
     <div class="chip-wrap" id="chip-wrap" hidden>
       <span class="offline-chip" id="offline-chip"></span>
     </div>
 
+    <!-- 里程碑祝贺 -->
+    <div id="cheer-slot"><!-- uiCheer 注入 --></div>
+
     <!-- 总览四宫格 -->
     <section class="card">
-      <h2 class="card-title">🌌 总览</h2>
+      <h2 class="card-title">🌌 星途总览</h2>
       <div class="stat-grid">
         <div class="stat-tile theme-gold">
           <span class="stat-value" id="stat-streak">0</span>
@@ -35,7 +38,7 @@
         </div>
         <div class="stat-tile theme-teal">
           <span class="stat-value" id="stat-days">0</span>
-          <span class="stat-label">有记录天数</span>
+          <span class="stat-label">亮着的日子</span>
         </div>
         <div class="stat-tile theme-violet">
           <span class="stat-value" id="stat-total">0</span>
@@ -44,24 +47,43 @@
       </div>
     </section>
 
-    <!-- 全年星图 -->
+    <!-- 星轨攀升：每个计划一条竖轨，连续越久升得越高 -->
+    <section class="card">
+      <h2 class="card-title">🚀 星轨攀升</h2>
+      <div id="track-slot"><!-- uiStarTrack 注入 --></div>
+    </section>
+
+    <!-- 月度星历 -->
     <section class="card">
       <div class="card-head">
-        <h2 class="card-title">✨ 全年星图</h2>
-        <select id="hm-source" class="input input-inline" aria-label="星图数据来源">
+        <h2 class="card-title">🗓 月度星历</h2>
+        <div class="month-nav">
+          <button type="button" class="mini-btn" id="month-prev" aria-label="上一月">‹</button>
+          <button type="button" class="mini-btn" id="month-today">回到本月</button>
+          <button type="button" class="mini-btn" id="month-next" aria-label="下一月">›</button>
+        </div>
+      </div>
+      <div id="month-slot"><!-- uiMonthGrid 注入 --></div>
+    </section>
+
+    <!-- 全年星点图 -->
+    <section class="card">
+      <div class="card-head">
+        <h2 class="card-title">✨ 全年星点</h2>
+        <select id="hm-source" class="input input-inline" aria-label="星点图数据来源">
           <option value="all">全部来源</option>
           <option value="auto">仅提醒送达</option>
-          <option value="manual">仅手动确认</option>
+          <option value="manual">仅手动点亮</option>
         </select>
       </div>
-      <div id="heatmap-year"><!-- uiHeatmap 注入 --></div>
+      <div id="heatmap-year"><!-- uiStarHeatmap 注入 --></div>
       <p class="setting-note" id="heatmap-summary">—</p>
     </section>
 
     <!-- 活跃趋势 -->
     <section class="card">
       <div class="card-head">
-        <h2 class="card-title">📈 活跃趋势</h2>
+        <h2 class="card-title">📈 星光起伏</h2>
         <select id="trend-range" class="input input-inline" aria-label="趋势时间范围">
           <option value="30">近 30 天</option>
           <option value="90">近 90 天</option>
@@ -71,10 +93,10 @@
       <div id="trend-chart"><!-- uiSparkline 注入 --></div>
     </section>
 
-    <!-- 各计划完成率 -->
+    <!-- 星座亮度条（各计划近 30 天完成率） -->
     <section class="card">
-      <h2 class="card-title">🎯 计划完成率（近 30 天）</h2>
-      <div class="rate-list" id="rate-list"><!-- app3.js 渲染 --></div>
+      <h2 class="card-title">🎯 星座亮度（近 30 天）</h2>
+      <div class="rate-list" id="rate-list"><!-- uiBrightBars 注入 --></div>
       <div id="rate-empty" hidden><!-- uiEmpty 注入 --></div>
     </section>
 
@@ -86,13 +108,13 @@
 
     <!-- 频率分布 -->
     <section class="card">
-      <h2 class="card-title">🧭 频率分布</h2>
+      <h2 class="card-title">🧭 周期分布</h2>
       <div id="freq-dist"><!-- app3.js 渲染 --></div>
       <div class="freq-legend" id="freq-legend"></div>
     </section>
 
     <footer class="footer">
-      <p>星河自律 · RUN-form · 青 = 提醒送达，金 = 手动确认</p>
+      <p>星河契约 · RUN-form · 青 = 提醒送达，金 = 手动点亮</p>
     </footer>
   </main>
 

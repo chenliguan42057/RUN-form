@@ -1521,3 +1521,368 @@ async function syncToRepo() {
     }
   }
 }
+
+/* =====================================================================
+   v4「星河契约」增量层
+   ---------------------------------------------------------------------
+   本节【只新增】，不改动上面任何 v2/v3 的函数签名与行为。
+   核心隐喻：每个计划都是夜空中的一颗星。
+     · 位置  planStarPosition(id)  —— 由 id 哈希派生，同一计划永远在同一处；
+     · 亮度  planBrightness(plan)  —— 由连续记录 + 完成率派生，坚持则明亮；
+     · 星座  buildStarMap()        —— 按 createdAt 排序相邻连线，织成你的星座。
+   ===================================================================== */
+
+// ============================ v4 常量 ============================
+
+/** 星图左右安全边距（百分比）：保证星点与名称不会贴边被裁 */
+const STAR_MARGIN_X = 9;
+/** 星图上下安全边距（百分比） */
+const STAR_MARGIN_Y = 13;
+/**
+ * 宽高比补偿系数。
+ * 星图容器通常「宽 ≫ 高」，若直接拿百分比算距离，横向会显得过疏、纵向过密。
+ * 比较距离时把 x 分量乘上它，散布才符合视觉直觉。
+ */
+const STAR_ASPECT = 1.7;
+/** 两颗星之间的最小视觉间距（以「纵向百分比」为单位） */
+const STAR_MIN_GAP = 17;
+/** 散开松弛的迭代上限。纯确定性算法，次数固定 → 每次打开位置完全一致 */
+const STAR_RELAX_ITERATIONS = 30;
+/** 亮度分档阈值（score 由高到低匹配），依次对应 level 4 / 3 / 2 / 1 */
+const STAR_LEVEL_STEPS = [0.8, 0.56, 0.32, 0.02];
+
+/** 里程碑祝贺语：连续天数 → 一句话 */
+const MILESTONE_CHEERS = {
+  7: "连续 7 天——你点亮了一颗北极星。",
+  21: "连续 21 天——星轨已经稳定成型。",
+  30: "连续 30 天——向日葵在夜里也朝着你。",
+  100: "连续 100 天——这已经是一条完整的星河。",
+  365: "连续 365 天——岁轮走完一整圈，你还在。",
+};
+
+/**
+ * 天文台时段旁白（区间与 GREETINGS 一一对应）。
+ * from > to 表示跨零点区间。
+ */
+const SKY_POEMS = [
+  { from: 5, to: 8, text: "清晨，你的星域还未全部亮起。" },
+  { from: 9, to: 11, text: "天光正盛，星星在白昼背后等你。" },
+  { from: 12, to: 13, text: "正午，星轨仍在头顶悄悄推进。" },
+  { from: 14, to: 17, text: "日头偏西了，先去点亮最近的那一颗。" },
+  { from: 18, to: 21, text: "入夜，今晚该有几颗星要亮起来。" },
+  { from: 22, to: 4, text: "夜深了，今日又有多少颗星被点亮。" },
+];
+
+/** 星图空状态诗句 */
+const EMPTY_SKY_LINE = "你的星空还是一片暗区，缔结第一颗星吧。";
+
+// ============================ v4 星图计算 ============================
+
+/**
+ * 依据当前时段返回一句诗意旁白。
+ * @param {Date} [date] 参考时间，缺省为现在
+ * @returns {string} 旁白文本
+ */
+function skyPoem(date) {
+  const d = date instanceof Date ? date : new Date();
+  const hour = d.getHours();
+  for (const p of SKY_POEMS) {
+    if (p.from <= p.to) {
+      if (hour >= p.from && hour <= p.to) return p.text;
+    } else if (hour >= p.from || hour <= p.to) {
+      // 跨零点区间，例如 22 ~ 4
+      return p.text;
+    }
+  }
+  return SKY_POEMS[SKY_POEMS.length - 1].text;
+}
+
+/**
+ * 计算某个计划在星图上的固定坐标（百分比）。
+ * 用两条带不同 salt 的哈希分别派生 x / y，保证：
+ *   1）同一计划每次打开位置完全相同（不会跳来跳去）；
+ *   2）不同计划分布足够散乱，看起来像真实星空。
+ * @param {string} planId 计划 id
+ * @returns {{x:number, y:number}} 百分比坐标，已含安全边距
+ */
+function planStarPosition(planId) {
+  const id = String(planId == null ? "" : planId);
+  const hx = hashString(`starx:${id}`);
+  const hy = hashString(`stary:${id}`);
+  const spanX = 100 - STAR_MARGIN_X * 2;
+  const spanY = 100 - STAR_MARGIN_Y * 2;
+  return {
+    x: STAR_MARGIN_X + ((hx % 10007) / 10007) * spanX,
+    y: STAR_MARGIN_Y + ((hy % 10009) / 10009) * spanY,
+  };
+}
+
+/**
+ * 计算某个计划的「亮度」。
+ * 语义：坚持得越久、完成率越高 → 星越亮、光环越大；停用则完全熄灭。
+ *   score = 连续记录贡献（0~0.65） + 近 30 天完成率贡献（0~0.35）
+ * @param {Object} plan 计划对象
+ * @returns {{level:number, score:number, streak:Object, rate:Object}}
+ *          level 0 = 熄灭 / 1 = 微光 / 2 = 常明 / 3 = 明亮 / 4 = 恒星
+ */
+function planBrightness(plan) {
+  const p = plan && typeof plan === "object" ? plan : {};
+  const emptyStreak = { current: 0, best: 0, unit: "天", lastDate: null };
+  const emptyRate = { done: 0, expected: 0, missed: 0, rate: 0 };
+
+  if (p.enabled === false) {
+    return { level: 0, score: 0, streak: emptyStreak, rate: emptyRate };
+  }
+
+  const streak = p.id ? computeStreak(p.id) : emptyStreak;
+  const rate = p.id ? completionRate(p.id, 30) : emptyRate;
+
+  // 21 天封顶：到「成习」这个量级就算满分，再久也不会让别的星显得太暗
+  const streakScore = Math.min(1, Math.max(0, streak.current / 21)) * 0.65;
+  const rateScore = Math.min(1, Math.max(0, Number(rate.rate) || 0)) * 0.35;
+  const score = streakScore + rateScore;
+
+  let level = 1; // 启用中的计划至少保留一点微光，不至于完全看不见
+  for (let i = 0; i < STAR_LEVEL_STEPS.length; i++) {
+    if (score >= STAR_LEVEL_STEPS[i]) {
+      level = 4 - i;
+      break;
+    }
+  }
+  return { level: Math.max(1, level), score, streak, rate };
+}
+
+/**
+ * 构建完整星图数据：星点 + 星座连线。
+ *
+ * 位置先由哈希派生，再做一次【确定性松弛】把挨太近的星互相推开——
+ * 因为迭代次数与比较顺序都固定，同一批计划每次得到的结果完全一致。
+ *
+ * @param {Array<Object>} [planList] 计划数组，缺省时自行 loadPlans()
+ * @returns {{stars:Array<Object>, links:Array<Object>, total:number, lit:number, dim:number}}
+ */
+function buildStarMap(planList) {
+  const plans = Array.isArray(planList) ? planList : loadPlans();
+  const now = Date.now();
+
+  const stars = plans.map((plan, index) => {
+    const id = plan.id || `idx-${index}`;
+    const pos = planStarPosition(id);
+    const bright = planBrightness(plan);
+    const theme = themeOf(plan);
+    const enabled = plan.enabled !== false;
+    const next = enabled ? nextReminder(plan, now) : null;
+    const level = enabled ? bright.level : 0;
+
+    // 星芯与光环尺寸（px）：亮度越高越大
+    const size = 12 + level * 4.5;
+    const halo = size * (2.3 + level * 0.55);
+
+    const tipParts = [`${plan.icon || "🌟"} ${plan.name || "未命名"}`, describePlan(plan)];
+    if (!enabled) {
+      tipParts.push("已熄灭");
+    } else if (next) {
+      tipParts.push(`下次 ${next.human} · 还有 ${formatCountdown(next.diffMs)}`);
+    }
+    if (bright.streak.current > 0) {
+      tipParts.push(`连续 ${bright.streak.current} ${bright.streak.unit}`);
+    }
+    if (bright.rate.expected > 0) {
+      tipParts.push(`30 天完成率 ${Math.round(bright.rate.rate * 100)}%`);
+    }
+    const desc = String(plan.desc || "").trim();
+    if (desc) tipParts.push(desc);
+
+    return {
+      id,
+      name: plan.name || "未命名",
+      icon: plan.icon || "🌟",
+      desc,
+      freq: plan.freq || "daily",
+      time: plan.time || "08:00",
+      day: Number(plan.day) || 0,
+      color: plan.color || "",
+      enabled,
+      createdAt: Number(plan.createdAt) || 0,
+      theme,
+      level,
+      score: bright.score,
+      streak: bright.streak,
+      rate: bright.rate,
+      next,
+      x: pos.x,
+      y: pos.y,
+      size,
+      halo,
+      // 闪烁相位错开，避免所有星整齐划一地一起眨眼
+      delay: hashString(`tw:${id}`) % 4200,
+      period: 3200 + (hashString(`pd:${id}`) % 2600),
+      tip: tipParts.join(" · "),
+      label: describePlan(plan),
+    };
+  });
+
+  // —— 确定性松弛：把靠得太近的星星互相推开 ——
+  for (let iter = 0; iter < STAR_RELAX_ITERATIONS; iter++) {
+    let moved = false;
+    for (let i = 0; i < stars.length; i++) {
+      for (let j = i + 1; j < stars.length; j++) {
+        const a = stars[i];
+        const b = stars[j];
+        let dx = (b.x - a.x) * STAR_ASPECT;
+        let dy = b.y - a.y;
+        let dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 0.0001) {
+          // 完全重合：按索引给一个固定方向的微小偏移，既避免除零又保持确定性
+          dx = (i % 2 === 0 ? 1 : -1) * 0.6;
+          dy = (j % 2 === 0 ? 1 : -1) * 0.6;
+          dist = Math.sqrt(dx * dx + dy * dy);
+        }
+        if (dist >= STAR_MIN_GAP) continue;
+        const push = (STAR_MIN_GAP - dist) / 2;
+        const ux = dx / dist;
+        const uy = dy / dist;
+        a.x -= (ux * push) / STAR_ASPECT;
+        a.y -= uy * push;
+        b.x += (ux * push) / STAR_ASPECT;
+        b.y += uy * push;
+        moved = true;
+      }
+    }
+    // 每轮结束都夹回安全区，防止被推出画布
+    for (const s of stars) {
+      s.x = Math.min(100 - STAR_MARGIN_X, Math.max(STAR_MARGIN_X, s.x));
+      s.y = Math.min(100 - STAR_MARGIN_Y, Math.max(STAR_MARGIN_Y, s.y));
+    }
+    if (!moved) break;
+  }
+
+  // —— 星座连线：按缔结时间排序后相邻相连（id 兜底保证排序稳定）——
+  const ordered = stars.slice().sort((a, b) => {
+    const diff = a.createdAt - b.createdAt;
+    if (diff !== 0) return diff;
+    return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0;
+  });
+  const links = [];
+  for (let i = 1; i < ordered.length; i++) {
+    const a = ordered[i - 1];
+    const b = ordered[i];
+    links.push({
+      from: a.id,
+      to: b.id,
+      x1: a.x,
+      y1: a.y,
+      x2: b.x,
+      y2: b.y,
+      // 两端都够亮时连线也跟着亮一点，星座才有层次
+      bright: a.level + b.level >= 5,
+    });
+  }
+
+  const lit = stars.filter((s) => s.enabled).length;
+  return { stars, links, total: stars.length, lit, dim: stars.length - lit };
+}
+
+/**
+ * 构建某个月的日历网格（整周对齐，周一在第一列）。
+ * 统计页「星历」用它把有活动的日子画成小星星。
+ * @param {number} year 年份，例如 2026
+ * @param {number} month 月份索引 0~11
+ * @param {{planId?:string, source?:string}} [opts] 活动过滤条件
+ * @returns {Object} MonthGrid
+ */
+function buildMonthGrid(year, month, opts) {
+  const today = new Date();
+  const y = Number.isFinite(Number(year)) ? Number(year) : today.getFullYear();
+  const mo = Number.isFinite(Number(month)) ? Number(month) : today.getMonth();
+
+  const first = new Date(y, mo, 1);
+  const lead = pyWeekday(first); // 本月 1 号前面要补几个上月的格子
+  const lastDay = new Date(y, mo + 1, 0).getDate();
+  const totalCells = Math.ceil((lead + lastDay) / 7) * 7;
+  const gridStart = new Date(y, mo, 1 - lead);
+
+  const activity = buildActivityMap(opts);
+  const todayKey = dateKey(today);
+  const todayTs = startOfDay(today).getTime();
+
+  const cells = [];
+  let total = 0;
+  let activeDays = 0;
+  let maxCount = 0;
+
+  for (let i = 0; i < totalCells; i++) {
+    const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+    const key = dateKey(d);
+    const hit = activity.get(key);
+    const count = hit ? hit.count : 0;
+
+    // 与热力图完全一致的分档逻辑，保证两处视觉口径统一
+    let level = 0;
+    for (let li = HEATMAP_LEVELS.length - 1; li >= 0; li--) {
+      if (count >= HEATMAP_LEVELS[li] && HEATMAP_LEVELS[li] > 0) {
+        level = li;
+        break;
+      }
+    }
+
+    const inMonth = d.getFullYear() === y && d.getMonth() === mo;
+    if (inMonth && count > 0) {
+      total += count;
+      activeDays += 1;
+      if (count > maxCount) maxCount = count;
+    }
+
+    cells.push({
+      date: key,
+      day: d.getDate(),
+      count,
+      manual: hit ? hit.manual : 0,
+      auto: hit ? hit.auto : 0,
+      level,
+      inMonth,
+      isToday: key === todayKey,
+      future: startOfDay(d).getTime() > todayTs,
+    });
+  }
+
+  return {
+    year: y,
+    month: mo,
+    label: `${y} 年 ${mo + 1} 月`,
+    cells,
+    total,
+    activeDays,
+    maxCount,
+    days: lastDay,
+  };
+}
+
+/**
+ * 里程碑祝贺 / 激励文案。
+ * 已解锁时返回最高一档的祝贺；一个都没解锁时返回「还差多少天」的鼓励。
+ * @returns {{unlocked:boolean, text:string, milestone:Object}}
+ */
+function milestoneCheer() {
+  const all = milestones();
+  const unlockedList = all.filter((m) => m.unlocked);
+
+  if (unlockedList.length === 0) {
+    const streak = globalStreak();
+    const reached = Math.max(streak.current, streak.best);
+    const next = MILESTONES.find((m) => m.days > reached) || MILESTONES[0];
+    const gap = Math.max(next.days - reached, 0);
+    return {
+      unlocked: false,
+      text: `再坚持 ${gap} 天，就能点亮「${next.name}」。`,
+      milestone: next,
+    };
+  }
+
+  const top = unlockedList[unlockedList.length - 1];
+  return {
+    unlocked: true,
+    text: MILESTONE_CHEERS[top.days] || `连续 ${top.days} 天——「${top.name}」已达成。`,
+    milestone: top,
+  };
+}

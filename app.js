@@ -1,17 +1,24 @@
 /**
- * 星河自律 · 仪表盘逻辑（app.js）
+ * 星河契约 · 天文台逻辑（app.js，v4）
  *
- * 职责：一屏回答三个问题——「接下来要做什么」「今天完成得怎么样」「最近坚持得如何」。
- * 计划维护在管理页（manage.html + app2.js），深度统计在统计页（stats.html + app3.js）。
+ * 职责：一屏回答三个问题——「下一颗要点亮的是哪颗星」「今夜亮了几颗」「最近这片天区如何」。
+ * 星图维护在星图页（manage.html + app2.js），深度统计在星历页（stats.html + app3.js）。
+ *
+ * v4 的观感变化（数据口径完全不变）：
+ *   · 时段旁白 skyPoem() 取代干巴巴的副标题；
+ *   · 四个指标改成天文语汇：已缔结星数 / 今夜待点亮 / 彗尾（连续）/ 月相（完成率）；
+ *   · 今日时间轴 → 「今晚的星轨」，到点未完成的星会脉冲；
+ *   · 热力图 → 星点图；梵高语录 → 「星语」。
  *
  * 依赖（加载顺序 store.js → components.js → app.js）：
  *   store.js      loadPlans / loadCheckins / addCheckin / loadPrefs / todayPlans /
  *                 overviewStats / buildHeatmap / nextReminder / describePlan / themeOf /
- *                 greetingNow / randomQuote / formatCountdown / dateKey / pyWeekday /
- *                 loadReminderLog / reminderStatus / scheduleAutoSync / showToast /
- *                 WEEKDAY_LABELS
- *   components.js uiNav / uiStarfield / uiRing / uiHeatmap / uiTimelineItem / uiEmpty /
- *                 uiCountUp / uiTooltip / uiRevealOnLoad
+ *                 greetingNow / skyPoem / randomQuote / formatCountdown / dateKey /
+ *                 pyWeekday / loadReminderLog / reminderStatus / scheduleAutoSync /
+ *                 showToast / WEEKDAY_LABELS
+ *   components.js uiNav / uiStarfield / uiRing / uiStarHeatmap / uiTimelineStar / uiEmpty /
+ *                 uiCountUp / uiComet / uiMoonPhase / uiMoonName / uiSkyQuote /
+ *                 uiTooltip / uiRevealOnLoad
  *
  * ⚠️ `const $` 只在页面脚本里声明；store.js / components.js 内绝不出现。
  */
@@ -22,6 +29,7 @@ const appRoot = $("app-root");
 const navSlot = $("nav-slot");
 const greetingEl = $("greeting");
 const todayDateEl = $("today-date");
+const skyPoemEl = $("sky-poem");
 const dailyQuoteEl = $("daily-quote");
 const chipWrap = $("chip-wrap");
 const offlineChip = $("offline-chip");
@@ -41,6 +49,10 @@ const statActive = $("stat-active");
 const statToday = $("stat-today");
 const statStreak = $("stat-streak");
 const statRate = $("stat-rate");
+const tileToday = $("tile-today");
+const cometSlot = $("comet-slot");
+const moonSlot = $("moon-slot");
+const moonNameEl = $("moon-name");
 
 const timelineEl = $("timeline");
 const timelineEmpty = $("timeline-empty");
@@ -69,7 +81,7 @@ function applyMotionPref() {
 // ============================ 渲染：页头 ============================
 
 /**
- * 渲染时段问候、今天的日期、当日恒定的梵高语录。
+ * 渲染时段问候、时段旁白、今天的日期，以及当日恒定的「星语」。
  * 语录用 dateKey() 作 seed，同一天刷新多少次都一样，避免闪烁感。
  * @returns {void}
  */
@@ -80,7 +92,10 @@ function renderHeader() {
   todayDateEl.textContent =
     `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日 · ` +
     `${WEEKDAY_LABELS[pyWeekday(now)]}`;
-  dailyQuoteEl.textContent = `「${randomQuote(dateKey(now))}」`;
+  if (skyPoemEl) skyPoemEl.textContent = skyPoem(now);
+  if (dailyQuoteEl) {
+    dailyQuoteEl.innerHTML = uiSkyQuote(randomQuote(dateKey(now)), { from: "梵高" });
+  }
 }
 
 // ============================ 渲染：主卡 ============================
@@ -189,7 +204,7 @@ function renderNextUp() {
   manualCheckBtn.hidden = prefs.showManualCheckin === false;
   manualCheckBtn.setAttribute(
     "data-tip",
-    `把「${focus.plan.name || "未命名"}」记为今天已完成`
+    `把「${focus.plan.name || "未命名"}」记为今天已点亮`
   );
 
   updateCountdown();
@@ -198,19 +213,45 @@ function renderNextUp() {
 // ============================ 渲染：概览 / 时间轴 / 星图 ============================
 
 /**
- * 渲染四宫格关键指标（带数字滚动，动效关闭时直接落终值）。
+ * 渲染四个天象指标：
+ *   已缔结星数 / 今夜待点亮 / 连续天数（彗尾）/ 近 30 天完成率（月相）。
+ * 数字带滚动动画，动效关闭时直接落终值；彗尾与月相是纯 SVG，随数据重绘。
  * @returns {void}
  */
 function renderOverview() {
   const stats = overviewStats();
+  const pending = Math.max(stats.todayDue - stats.todayDone, 0);
+
   uiCountUp(statActive, stats.planActive);
-  uiCountUp(statToday, stats.todayDone, { suffix: `/${stats.todayDue}` });
+  uiCountUp(statToday, pending);
   uiCountUp(statStreak, stats.streak, { suffix: " 天" });
   uiCountUp(statRate, Math.round(stats.rate30 * 100), { suffix: "%" });
+
+  if (tileToday) {
+    tileToday.setAttribute(
+      "data-tip",
+      stats.todayDue > 0
+        ? `今夜共 ${stats.todayDue} 颗待亮，已点亮 ${stats.todayDone} 颗`
+        : "今夜没有需要点亮的星"
+    );
+  }
+
+  // 彗尾：连续越久，尾巴拖得越长
+  if (cometSlot) {
+    cometSlot.innerHTML = uiComet(stats.streak, { width: 128, height: 40 });
+  }
+
+  // 月相：0% 新月，100% 满月。图形只画盘面，百分比由 #stat-rate 显示
+  if (moonSlot) {
+    moonSlot.innerHTML = uiMoonPhase(stats.rate30, { size: 64, label: "", sub: "" });
+  }
+  if (moonNameEl) {
+    moonNameEl.textContent = `近 30 天 · ${uiMoonName(stats.rate30)}`;
+  }
 }
 
 /**
- * 渲染今日时间轴，并给第一个「未完成且未过点」的项打上 is-now（脉冲高亮）。
+ * 渲染「今晚的星轨」，并给第一个「未完成且未过点」的项打上 is-now（脉冲高亮）。
  * @returns {void}
  */
 function renderTimeline() {
@@ -218,7 +259,7 @@ function renderTimeline() {
 
   if (list.length === 0) {
     timelineEl.innerHTML = "";
-    timelineEmpty.innerHTML = uiEmpty("今天没有需要触发的计划，好好休息。", "🌙");
+    timelineEmpty.innerHTML = uiEmpty("今晚没有星要亮起，安心休息。", "🌙");
     timelineEmpty.hidden = false;
     return;
   }
@@ -231,18 +272,18 @@ function renderTimeline() {
     .map((v) => {
       const isNow = !marked && !v.passed && !v.done;
       if (isNow) marked = true;
-      return uiTimelineItem(Object.assign({}, v, { isNow }));
+      return uiTimelineStar(Object.assign({}, v, { isNow }));
     })
     .join("");
 }
 
 /**
- * 渲染近 12 周（84 天）迷你星图。
+ * 渲染近 12 周（84 天）迷你星点图。
  * @returns {void}
  */
 function renderMiniHeatmap() {
   const data = buildHeatmap(84, { source: prefs.heatmapSource });
-  miniHeatmap.innerHTML = uiHeatmap(data, {
+  miniHeatmap.innerHTML = uiStarHeatmap(data, {
     cell: 13,
     gap: 4,
     showMonths: true,
@@ -265,12 +306,12 @@ function renderOfflineChip() {
     offlineChip.textContent =
       st.size > 0
         ? "⚠️ 提醒记录来自本地缓存（暂时读不到 data/reminder-state.json）"
-        : "⚠️ 本地预览模式：读不到提醒记录，星图仅显示手动确认";
+        : "⚠️ 本地预览模式：读不到提醒记录，星点图仅显示手动点亮";
     chipWrap.hidden = false;
     return;
   }
   if (st.size === 0) {
-    offlineChip.textContent = "🌱 还没有提醒送达记录，等第一次钉钉提醒后星图就会亮起来";
+    offlineChip.textContent = "🌱 还没有提醒送达记录，等第一次钉钉提醒后这片天区就会亮起来";
     chipWrap.hidden = false;
     return;
   }
@@ -317,17 +358,17 @@ function startClock() {
 
 manualCheckBtn.addEventListener("click", () => {
   if (!focusPlanId) {
-    showToast("当前没有可标记的计划", "error");
+    showToast("当前没有可点亮的星", "error");
     return;
   }
   const plan = loadPlans().find((p) => p.id === focusPlanId);
   if (!plan) {
-    showToast("该计划已不存在，请刷新页面", "error");
+    showToast("这颗星已不存在，请刷新页面", "error");
     renderAll();
     return;
   }
   addCheckin(plan.id, plan.name);
-  showToast(`已标记完成：${plan.name}`, "success");
+  showToast(`已点亮：${plan.name} ✦`, "success");
   renderAll();
   scheduleAutoSync();
 });

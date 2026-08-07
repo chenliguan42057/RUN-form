@@ -1,15 +1,19 @@
 /**
- * 星河自律 · 统计页逻辑（app3.js）
+ * 星河契约 · 星历页逻辑（app3.js）
  *
- * 职责：把「坚持」这件事可视化——全年星图、活跃趋势、各计划完成率、里程碑、频率分布。
- * 本页【只读】，不写任何业务数据（唯一的写操作是把星图来源筛选存进偏好）。
+ * 职责：把「坚持」这件事讲成一段星途——
+ *   里程碑贺词 → 星途总览 → 星轨攀升 → 月度星历 → 全年星点 → 星光起伏
+ *   → 星座亮度 → 里程碑徽章 → 周期分布。
+ * 本页【只读】业务数据，唯一的写操作是把「星点来源筛选」存进偏好（与仪表盘共享口径）。
  *
  * 依赖（加载顺序 store.js → components.js → app3.js）：
  *   store.js      loadPlans / loadPrefs / savePrefs / globalStreak / buildActivityMap /
- *                 buildHeatmap / dailyTrend / completionRate / computeStreak / milestones /
- *                 describePlan / themeOf / escapeHtml / loadReminderLog / reminderStatus /
- *                 FREQ_LABELS
- *   components.js uiNav / uiStarfield / uiRing / uiHeatmap / uiSparkline / uiBadgeGrid /
+ *                 buildHeatmap / buildMonthGrid / dailyTrend / completionRate /
+ *                 computeStreak / milestones / milestoneCheer / describePlan / themeOf /
+ *                 escapeHtml / loadReminderLog / reminderStatus / FREQ_LABELS /
+ *                 PLAN_KEY / CHECKIN_KEY / PREFS_KEY
+ *   components.js uiNav / uiStarfield / uiCheer / uiStarTrack / uiMonthGrid /
+ *                 uiStarHeatmap / uiSparkline / uiBrightBars / uiBadgeGrid /
  *                 uiEmpty / uiCountUp / uiTooltip / uiRevealOnLoad
  *
  * ⚠️ `const $` 只在页面脚本里声明；store.js / components.js 内绝不出现。
@@ -22,10 +26,19 @@ const navSlot = $("nav-slot");
 const chipWrap = $("chip-wrap");
 const offlineChip = $("offline-chip");
 
+const cheerSlot = $("cheer-slot");
+
 const statStreak = $("stat-streak");
 const statBest = $("stat-best");
 const statDays = $("stat-days");
 const statTotal = $("stat-total");
+
+const trackSlot = $("track-slot");
+
+const monthPrevBtn = $("month-prev");
+const monthTodayBtn = $("month-today");
+const monthNextBtn = $("month-next");
+const monthSlot = $("month-slot");
 
 const hmSourceSelect = $("hm-source");
 const heatmapYear = $("heatmap-year");
@@ -42,10 +55,15 @@ const freqLegendEl = $("freq-legend");
 
 /** UI 偏好快照 */
 let prefs = loadPrefs();
-/** 星图数据来源：'all' | 'auto' | 'manual' */
+/** 星点图数据来源：'all' | 'auto' | 'manual' */
 let hmSource = prefs.heatmapSource;
 /** 趋势图回溯天数 */
 let trendDays = 30;
+/** 月度星历游标：{year, month(0~11)} */
+let monthCursor = { year: new Date().getFullYear(), month: new Date().getMonth() };
+
+/** 星轨最多同屏展示多少条，超出的在轴线说明里提示 */
+const TRACK_LIMIT = 12;
 
 /** 频率 → 主题色的固定映射，保证进度条与图例颜色一致 */
 const FREQ_THEME = [
@@ -64,10 +82,48 @@ function applyMotionPref() {
   document.documentElement.classList.toggle("no-motion", prefs.reduceMotion === true);
 }
 
-// ============================ 渲染：总览 ============================
+/**
+ * 把游标压回「当前月」。
+ * @returns {void}
+ */
+function resetMonthCursor() {
+  const now = new Date();
+  monthCursor = { year: now.getFullYear(), month: now.getMonth() };
+}
 
 /**
- * 渲染四宫格：当前连续 / 最佳连续 / 有记录天数 / 累计触达次数。
+ * 游标按月平移，自动处理跨年。
+ * @param {number} delta 偏移月数，可负
+ * @returns {void}
+ */
+function shiftMonthCursor(delta) {
+  const step = Number(delta) || 0;
+  const d = new Date(monthCursor.year, monthCursor.month + step, 1);
+  monthCursor = { year: d.getFullYear(), month: d.getMonth() };
+}
+
+/**
+ * 判断游标是否已经停在当前月（用于禁用「下一月」与「回到本月」）。
+ * @returns {boolean} 是否为本月
+ */
+function isCursorThisMonth() {
+  const now = new Date();
+  return monthCursor.year === now.getFullYear() && monthCursor.month === now.getMonth();
+}
+
+// ============================ 渲染：贺词 / 总览 ============================
+
+/**
+ * 渲染里程碑贺词横幅（已解锁给祝贺，未解锁给「还差几天」）。
+ * @returns {void}
+ */
+function renderCheer() {
+  if (!cheerSlot) return;
+  cheerSlot.innerHTML = uiCheer(milestoneCheer());
+}
+
+/**
+ * 渲染四宫格：当前连续 / 最佳连续 / 亮着的日子 / 累计触达次数。
  * @returns {void}
  */
 function renderOverview() {
@@ -84,29 +140,92 @@ function renderOverview() {
   uiCountUp(statTotal, total, { suffix: " 次" });
 }
 
-// ============================ 渲染：星图 ============================
+// ============================ 渲染：星轨攀升 ============================
 
 /**
- * 渲染全年（371 天 ≈ 53 周）星图与统计小结。
+ * 渲染竖向星轨：每个启用计划一条轨道，连续记录越久，星升得越高。
+ * 停用计划不参与——它们已经熄灭，不该占据攀升的轨道。
+ * @returns {void}
+ */
+function renderTracks() {
+  if (!trackSlot) return;
+
+  const plans = loadPlans().filter((p) => p.enabled !== false);
+  if (plans.length === 0) {
+    trackSlot.innerHTML = uiEmpty("还没有启用中的星，去星图缔结第一颗吧。", "🌠");
+    return;
+  }
+
+  const rows = plans.map((plan) => {
+    const streak = computeStreak(plan.id);
+    return {
+      id: plan.id,
+      name: plan.name || "未命名",
+      icon: plan.icon || "🌟",
+      theme: themeOf(plan),
+      current: streak.current,
+      best: streak.best,
+      unit: streak.unit,
+    };
+  });
+
+  // 攀得高的排前面；同高时按名称稳定排序，避免每次刷新顺序乱跳
+  rows.sort((a, b) => {
+    if (b.current !== a.current) return b.current - a.current;
+    if (b.best !== a.best) return b.best - a.best;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+
+  const shown = rows.slice(0, TRACK_LIMIT);
+  const hidden = rows.length - shown.length;
+
+  trackSlot.innerHTML =
+    uiStarTrack(shown, { cap: 21 }) +
+    (hidden > 0
+      ? `<p class="setting-note">另有 ${escapeHtml(String(hidden))} 条星轨未显示（按连续记录取前 ${TRACK_LIMIT} 条）。</p>`
+      : "");
+}
+
+// ============================ 渲染：月度星历 ============================
+
+/**
+ * 渲染当前游标所在月的星历，并同步导航按钮的可用状态。
+ * @returns {void}
+ */
+function renderMonth() {
+  if (!monthSlot) return;
+
+  const grid = buildMonthGrid(monthCursor.year, monthCursor.month, { source: hmSource });
+  monthSlot.innerHTML = uiMonthGrid(grid, { title: grid.label });
+
+  const atThisMonth = isCursorThisMonth();
+  if (monthNextBtn) monthNextBtn.disabled = atThisMonth;
+  if (monthTodayBtn) monthTodayBtn.disabled = atThisMonth;
+}
+
+// ============================ 渲染：全年星点 ============================
+
+/**
+ * 渲染全年（371 天 ≈ 53 周）星点图与统计小结。
  * @returns {void}
  */
 function renderHeatmap() {
   const data = buildHeatmap(371, { source: hmSource });
-  heatmapYear.innerHTML = uiHeatmap(data, {
-    cell: 12,
-    gap: 3,
+  heatmapYear.innerHTML = uiStarHeatmap(data, {
+    cell: 13,
+    gap: 4,
     showMonths: true,
     showLegend: true,
   });
   heatmapSummary.textContent =
-    `${data.startDate} ~ ${data.endDate} · 活跃 ${data.activeDays} 天 · ` +
-    `累计 ${data.total} 次 · 单日最高 ${data.max} 次`;
+    `${data.startDate} ~ ${data.endDate} · 亮着 ${data.activeDays} 天 · ` +
+    `累计 ${data.total} 次 · 单日最亮 ${data.max} 次`;
 }
 
 // ============================ 渲染：趋势 ============================
 
 /**
- * 渲染近 trendDays 天的活跃趋势折线。
+ * 渲染近 trendDays 天的活跃趋势折线（星光起伏）。
  * @returns {void}
  */
 function renderTrend() {
@@ -117,11 +236,11 @@ function renderTrend() {
   });
 }
 
-// ============================ 渲染：完成率 ============================
+// ============================ 渲染：星座亮度 ============================
 
 /**
- * 渲染每个启用计划的近 30 天完成率（进度环 + 进度条 + 连续记录）。
- * 停用的计划不参与统计，避免历史计划把整体数据拖低。
+ * 渲染每个启用计划近 30 天完成率的亮度条。
+ * 停用计划不参与统计，避免历史计划把整体亮度拖低。
  * @returns {void}
  */
 function renderRates() {
@@ -129,47 +248,33 @@ function renderRates() {
 
   if (plans.length === 0) {
     rateList.innerHTML = "";
-    rateEmpty.innerHTML = uiEmpty("还没有启用中的计划，去管理页添加一个吧。", "🛠");
+    rateEmpty.innerHTML = uiEmpty("还没有启用中的星，去星图缔结一颗吧。", "✧");
     rateEmpty.hidden = false;
     return;
   }
   rateEmpty.innerHTML = "";
   rateEmpty.hidden = true;
 
-  rateList.innerHTML = plans
-    .map((plan) => {
-      const theme = themeOf(plan);
-      const rate = completionRate(plan.id, 30);
-      const streak = computeStreak(plan.id);
-      const pct = Math.round(rate.rate * 100);
-      const missedText = rate.missed > 0 ? ` · 缺 ${rate.missed}` : "";
+  const rows = plans.map((plan) => {
+    const rate = completionRate(plan.id, 30);
+    return {
+      id: plan.id,
+      name: plan.name || "未命名",
+      icon: plan.icon || "🌟",
+      theme: themeOf(plan),
+      rate: rate.rate,
+      done: rate.done,
+      expected: rate.expected,
+    };
+  });
 
-      return (
-        `<div class="rate-item theme-${escapeHtml(theme.key)}">` +
-        uiRing({
-          percent: rate.rate,
-          size: 68,
-          stroke: 7,
-          theme: theme.key,
-          label: `${pct}%`,
-        }) +
-        `<div class="rate-body">` +
-        `<p class="rate-name">${escapeHtml(plan.icon || "🌟")} ` +
-        `${escapeHtml(plan.name || "未命名")}</p>` +
-        `<p class="plan-meta">${escapeHtml(describePlan(plan))} · 🔥 连续 ` +
-        `${streak.current} ${escapeHtml(streak.unit)}（最佳 ${streak.best}）</p>` +
-        `<div class="rate-bar" data-tip="近 30 天完成率 ${pct}%">` +
-        `<span class="rate-bar-fill" style="width:${pct}%"></span></div>` +
-        `<p class="plan-meta">已完成 ${rate.done} / 应完成 ${rate.expected}${escapeHtml(
-          missedText
-        )}</p>` +
-        `</div></div>`
-      );
-    })
-    .join("");
+  // 亮的排前面；同亮度按名称稳定排序
+  rows.sort((a, b) => {
+    if (b.rate !== a.rate) return b.rate - a.rate;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
 
-  // 进度环是新注入的，需要再激活一次才会填充
-  uiRevealOnLoad(rateList);
+  rateList.innerHTML = uiBrightBars(rows);
 }
 
 // ============================ 渲染：徽章 / 频率分布 ============================
@@ -196,7 +301,7 @@ function renderFreqDist() {
 
   const total = plans.length;
   if (total === 0) {
-    freqDistEl.innerHTML = uiEmpty("还没有任何计划。", "🧭");
+    freqDistEl.innerHTML = uiEmpty("还没有任何星。", "🧭");
     freqLegendEl.innerHTML = "";
     return;
   }
@@ -238,12 +343,12 @@ function renderOfflineChip() {
     offlineChip.textContent =
       st.size > 0
         ? "⚠️ 提醒记录来自本地缓存（暂时读不到 data/reminder-state.json）"
-        : "⚠️ 本地预览模式：读不到提醒记录，统计仅基于手动确认";
+        : "⚠️ 本地预览模式：读不到提醒记录，星历仅基于手动点亮";
     chipWrap.hidden = false;
     return;
   }
   if (st.size === 0) {
-    offlineChip.textContent = "🌱 还没有提醒送达记录，等第一次钉钉提醒后星图就会亮起来";
+    offlineChip.textContent = "🌱 还没有提醒送达记录，等第一次钉钉提醒后这片天区就会亮起来";
     chipWrap.hidden = false;
     return;
   }
@@ -255,7 +360,10 @@ function renderOfflineChip() {
  * @returns {void}
  */
 function renderAll() {
+  renderCheer();
   renderOverview();
+  renderTracks();
+  renderMonth();
   renderHeatmap();
   renderTrend();
   renderRates();
@@ -268,9 +376,10 @@ function renderAll() {
 
 hmSourceSelect.addEventListener("change", () => {
   hmSource = hmSourceSelect.value;
-  // 记进偏好，仪表盘的迷你星图下次也用同一口径
+  // 记进偏好，仪表盘的迷你星点图下次也用同一口径
   prefs = savePrefs({ heatmapSource: hmSource });
   renderHeatmap();
+  renderMonth();
 });
 
 trendRangeSelect.addEventListener("change", () => {
@@ -278,6 +387,28 @@ trendRangeSelect.addEventListener("change", () => {
   trendDays = Number.isFinite(value) && value > 0 ? value : 30;
   renderTrend();
 });
+
+if (monthPrevBtn) {
+  monthPrevBtn.addEventListener("click", () => {
+    shiftMonthCursor(-1);
+    renderMonth();
+  });
+}
+
+if (monthNextBtn) {
+  monthNextBtn.addEventListener("click", () => {
+    if (isCursorThisMonth()) return; // 不允许翻到未来
+    shiftMonthCursor(1);
+    renderMonth();
+  });
+}
+
+if (monthTodayBtn) {
+  monthTodayBtn.addEventListener("click", () => {
+    resetMonthCursor();
+    renderMonth();
+  });
+}
 
 // 其它标签页改了数据就同步刷新
 window.addEventListener("storage", (e) => {
@@ -295,6 +426,7 @@ window.addEventListener("storage", (e) => {
   prefs = loadPrefs();
   hmSource = prefs.heatmapSource;
   applyMotionPref();
+  resetMonthCursor();
 
   uiStarfield(document.body);
   navSlot.innerHTML = uiNav("stats");

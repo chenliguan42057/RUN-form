@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- 固定深色主题（Q8）：告诉浏览器表单控件 / 滚动条也走深色 -->
+  <!-- 固定深色主题：告诉浏览器表单控件 / 滚动条也走深色 -->
   <meta name="color-scheme" content="dark" />
-  <title>星河自律 · RUN-form</title>
+  <title>天文台 · 星河契约</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -13,14 +13,13 @@
     <!-- 顶部胶囊导航：由 components.js 的 uiNav('home') 注入 -->
     <div id="nav-slot"></div>
 
-    <!-- 页头：主标题 / 副标题 / 时段问候 / 每日一句（Q10 锁定文案） -->
+    <!-- 页头：观星台身份 + 时段旁白 + 日期 -->
     <header class="hero">
-      <h1 class="hero-title">星河自律</h1>
-      <p class="hero-subtitle">不按惯例 · RUN-form</p>
+      <h1 class="hero-title">天文台</h1>
+      <p class="hero-subtitle" id="sky-poem">今夜也在这里，看着自己的星。</p>
       <p class="hero-meta">
         <span id="greeting">🌌 你好</span> · <span id="today-date">—</span>
       </p>
-      <p class="hero-quote" id="daily-quote">—</p>
     </header>
 
     <!-- 提醒数据降级提示（读不到 data/reminder-state.json 时出现） -->
@@ -28,11 +27,12 @@
       <span class="offline-chip" id="offline-chip"></span>
     </div>
 
-    <!-- 主卡：下一个要做的事 + 今日进度环 -->
+    <!-- 主卡：下一颗要点亮的星 + 今夜进度环 -->
     <section class="card next-card theme-gold" id="next-card">
       <div class="next-ring" id="next-ring"><!-- uiRing 注入 --></div>
 
       <div class="next-body" id="next-body">
+        <p class="next-kicker">下一颗要点亮的星</p>
         <h2 class="next-name">
           <span class="next-icon" id="next-icon" aria-hidden="true">🌟</span>
           <span id="next-name">—</span>
@@ -41,64 +41,85 @@
         <p class="next-meta" id="next-meta">—</p>
         <span class="next-count" id="next-countdown">—</span>
         <div class="next-actions">
-          <!-- Q1：「标记完成」保留为二级按钮，可在管理页关闭 -->
+          <!-- 「点亮」保留为二级按钮，可在星图页的设置抽屉里关闭 -->
           <button type="button" class="btn btn-ghost btn-sm" id="manual-check-btn" hidden>
-            标记完成
+            点亮
           </button>
-          <a class="btn btn-ghost btn-sm" href="manage.html">管理计划</a>
+          <a class="btn btn-ghost btn-sm" href="manage.html">去星图</a>
         </div>
       </div>
 
       <p class="empty-hint" id="next-empty" hidden>
-        <span class="empty-icon" aria-hidden="true">🌙</span>
-        还没有任何计划，去 <a href="manage.html">管理页</a> 点亮第一颗星吧。
+        <span class="empty-icon" aria-hidden="true">🌑</span>
+        你的星空还是一片暗区，去 <a href="manage.html">星图</a> 缔结第一颗星吧。
       </p>
     </section>
 
-    <!-- 关键指标四宫格 -->
+    <!-- 天象概览：四个天文指标 -->
     <section class="card">
       <div class="card-head">
-        <h2 class="card-title">🌠 概览</h2>
-        <a class="mini-btn" href="stats.html">更多统计</a>
+        <h2 class="card-title">🌌 今夜天象</h2>
+        <a class="mini-btn" href="stats.html">看星历</a>
       </div>
-      <div class="stat-grid">
+
+      <div class="stat-grid stat-grid--astro">
         <div class="stat-tile theme-blue">
-          <span class="stat-value" id="stat-active">0</span>
-          <span class="stat-label">启用计划</span>
+          <span class="stat-glyph" aria-hidden="true">✦</span>
+          <div class="stat-astro-text">
+            <span class="stat-value" id="stat-active">0</span>
+            <span class="stat-label">已缔结星数</span>
+          </div>
         </div>
-        <div class="stat-tile theme-teal">
-          <span class="stat-value" id="stat-today">0</span>
-          <span class="stat-label">今日完成</span>
+
+        <div class="stat-tile theme-teal" id="tile-today">
+          <span class="stat-glyph" aria-hidden="true">🌙</span>
+          <div class="stat-astro-text">
+            <span class="stat-value" id="stat-today">0</span>
+            <span class="stat-label">今夜待点亮</span>
+          </div>
         </div>
-        <div class="stat-tile theme-gold">
-          <span class="stat-value" id="stat-streak">0</span>
-          <span class="stat-label">连续天数</span>
+
+        <div class="stat-tile theme-gold stat-tile--comet">
+          <div class="stat-comet" id="comet-slot"><!-- uiComet 注入 --></div>
+          <div class="stat-astro-text">
+            <span class="stat-value" id="stat-streak">0</span>
+            <span class="stat-label">连续天数 · 彗尾</span>
+          </div>
         </div>
-        <div class="stat-tile theme-violet">
-          <span class="stat-value" id="stat-rate">0%</span>
-          <span class="stat-label">30 天完成率</span>
+
+        <div class="stat-tile theme-violet stat-tile--moon">
+          <div class="stat-moon" id="moon-slot"><!-- uiMoonPhase 注入 --></div>
+          <div class="stat-astro-text">
+            <span class="stat-value" id="stat-rate">0%</span>
+            <span class="stat-label" id="moon-name">近 30 天盈亏</span>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- 今日时间轴 -->
+    <!-- 今晚的星轨 -->
     <section class="card">
-      <h2 class="card-title">🕰 今日时间轴</h2>
-      <ul class="timeline" id="timeline"><!-- uiTimelineItem 注入 --></ul>
+      <h2 class="card-title">🛰 今晚的星轨</h2>
+      <ul class="rail" id="timeline"><!-- uiTimelineStar 注入 --></ul>
       <div id="timeline-empty" hidden><!-- uiEmpty 注入 --></div>
     </section>
 
-    <!-- 近 12 周星图 -->
+    <!-- 近 12 周星点图 -->
     <section class="card">
       <div class="card-head">
-        <h2 class="card-title">✨ 近 12 周星图</h2>
+        <h2 class="card-title">✨ 近 12 周星点</h2>
         <a class="mini-btn" href="stats.html">查看全年</a>
       </div>
-      <div id="mini-heatmap"><!-- uiHeatmap 注入 --></div>
+      <div id="mini-heatmap"><!-- uiStarHeatmap 注入 --></div>
+    </section>
+
+    <!-- 星语 -->
+    <section class="card quote-card">
+      <div id="daily-quote"><!-- uiSkyQuote 注入 --></div>
     </section>
 
     <footer class="footer">
-      <p>星河自律 · RUN-form · 数据存于本地浏览器</p>
+      <p>星河契约 · RUN-form · 数据存于本地浏览器</p>
     </footer>
   </main>
 

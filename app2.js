@@ -1,9 +1,15 @@
 /**
- * app2.js —— 管理页（manage.html）交互逻辑（v3「星河自律」）
+ * app2.js —— 星图页（manage.html）交互逻辑（v4「星河契约」）
  *
- * 职责：
- *   1. 计划的增 / 删 / 改 / 启停（含 v3 新增的 icon / color / desc）
- *   2. 界面偏好（显示手动打卡按钮 / 星图数据来源 / 减少动效）
+ * v4 的核心变化：主视图不再是表单 + 卡片列表，而是一张【星图画布】。
+ *   · 每个计划 = 夜空里的一颗星，位置由 id 哈希固定，亮度由坚持程度决定；
+ *   · 点一颗星 → 打开「星体编辑舱」弹层（表单 id 与 v2/v3 完全一致）；
+ *   · 「＋ 缔结新星」→ 同一个弹层的新增模式；
+ *   · 同步 / 备份 / 偏好 / 台账这些技术性内容，统统收进右上角设置抽屉。
+ *
+ * 职责（与 v3 一致，只是入口位置变了）：
+ *   1. 计划的增 / 删 / 改 / 启停（含 icon / color / desc）
+ *   2. 界面偏好（显示手动打卡按钮 / 星点图数据来源 / 减少动效）
  *   3. 数据备份与恢复（导出 JSON、导入 JSON）
  *   4. 全部台账浏览与删除
  *   5. GitHub Personal Access Token 与手动同步
@@ -26,7 +32,19 @@ const $ = (id) => document.getElementById(id);
 const appRoot = $("app-root");
 const navSlot = $("nav-slot");
 
-// 计划表单
+// 星图主视图
+const skyPoemEl = $("sky-poem");
+const skyMetaSlot = $("sky-meta-slot");
+const skyMapSlot = $("sky-map-slot");
+const newStarBtn = $("new-star-btn");
+
+// 星体编辑舱
+const starModal = $("star-modal");
+const starModalTitle = $("star-modal-title");
+const starBriefSlot = $("star-brief-slot");
+const starCloseBtn = $("star-close");
+
+// 计划表单（id 与 v2/v3 完全一致）
 const planForm = $("plan-form");
 const planNameInput = $("plan-name");
 const iconSlot = $("icon-picker-slot");
@@ -41,10 +59,13 @@ const planDateInput = $("plan-date");
 const planEnabledInput = $("plan-enabled");
 const planSubmitBtn = $("plan-submit");
 const planCancelLink = $("plan-cancel");
+const planDangerZone = $("plan-danger");
+const planDeleteBtn = $("plan-delete");
 
-// 计划列表
-const planListEl = $("plan-list");
-const planListEmpty = $("plan-list-empty");
+// 设置抽屉
+const settingsBtn = $("settings-btn");
+const settingsDrawer = $("settings-drawer");
+const settingsCloseBtn = $("settings-close");
 
 // 偏好
 const prefManualInput = $("pref-manual");
@@ -76,6 +97,8 @@ let selectedIcon = "🌟";
 let selectedTheme = "";
 /** 当前界面偏好快照 */
 let prefs = loadPrefs();
+/** 最近一次 buildStarMap() 的结果，供编辑舱取星体简报 */
+let skyMap = { stars: [], links: [], total: 0, lit: 0, dim: 0 };
 
 // ============================ 通用工具 ============================
 
@@ -103,6 +126,16 @@ function formatTs(ts) {
   );
 }
 
+/**
+ * 有弹层打开时锁住页面滚动，避免背景跟着一起滑。
+ * @returns {void}
+ */
+function syncScrollLock() {
+  const open =
+    (starModal && !starModal.hidden) || (settingsDrawer && !settingsDrawer.hidden);
+  document.body.classList.toggle("is-locked", Boolean(open));
+}
+
 // ============================ 图标 / 配色选择器 ============================
 
 /**
@@ -122,7 +155,7 @@ function renderThemePicker() {
   if (!themeSlot) return;
   themeSlot.innerHTML =
     uiThemePicker(selectedTheme) +
-    `<p class="setting-note">不选＝自动按计划分配一种配色。</p>`;
+    `<p class="setting-note">不选＝让星河替这颗星挑一种颜色。</p>`;
   syncThemeActive();
 }
 
@@ -169,7 +202,7 @@ function syncFreqVisibility() {
 }
 
 /**
- * 把表单恢复到「新增计划」的初始状态。
+ * 把表单恢复到「缔结新星」的初始状态。
  * @returns {void}
  */
 function resetPlanForm() {
@@ -184,8 +217,9 @@ function resetPlanForm() {
   if (planWeekdaySelect) planWeekdaySelect.value = "0";
   if (planDateInput) planDateInput.value = "1";
   if (planEnabledInput) planEnabledInput.checked = true;
-  if (planSubmitBtn) planSubmitBtn.textContent = "添加计划";
-  if (planCancelLink) planCancelLink.hidden = true;
+  if (planSubmitBtn) planSubmitBtn.textContent = "缔结";
+  if (planCancelLink) planCancelLink.hidden = false;
+  if (planDangerZone) planDangerZone.hidden = true;
 
   renderIconPicker();
   renderThemePicker();
@@ -215,21 +249,13 @@ function fillPlanForm(plan) {
     planDateInput.value = String(plan.freq === "monthly" ? Number(plan.day) || 1 : 1);
   }
   if (planEnabledInput) planEnabledInput.checked = plan.enabled !== false;
-  if (planSubmitBtn) planSubmitBtn.textContent = "保存修改";
+  if (planSubmitBtn) planSubmitBtn.textContent = "保存契约";
   if (planCancelLink) planCancelLink.hidden = false;
+  if (planDangerZone) planDangerZone.hidden = false;
 
   renderIconPicker();
   renderThemePicker();
   syncFreqVisibility();
-
-  // 滚到表单，避免用户点了「编辑」却看不到表单在哪
-  if (planForm && typeof planForm.scrollIntoView === "function") {
-    planForm.scrollIntoView({
-      behavior: uiMotionOff() ? "auto" : "smooth",
-      block: "center",
-    });
-  }
-  if (planNameInput) planNameInput.focus();
 }
 
 /**
@@ -239,7 +265,7 @@ function fillPlanForm(plan) {
 function collectPlanFields() {
   const name = planNameInput ? planNameInput.value.trim() : "";
   if (!name) {
-    showToast("请先填写计划名称", "error");
+    showToast("先给这颗星取个名字", "error");
     if (planNameInput) planNameInput.focus();
     return null;
   }
@@ -269,34 +295,89 @@ function collectPlanFields() {
   return fields;
 }
 
+// ============================ 弹层：星体编辑舱 ============================
+
+/**
+ * 打开星体编辑舱。
+ * @param {string|null} planId 计划 id；传 null / 空表示「缔结新星」
+ * @returns {void}
+ */
+function openStarModal(planId) {
+  if (!starModal) return;
+
+  const plan = planId ? loadPlans().find((p) => p.id === planId) || null : null;
+
+  if (plan) {
+    fillPlanForm(plan);
+    const star = skyMap.stars.find((s) => s.id === plan.id) || null;
+    if (starBriefSlot) starBriefSlot.innerHTML = uiStarBrief(star);
+    if (starModalTitle) starModalTitle.textContent = "改写契约";
+  } else {
+    resetPlanForm();
+    if (starBriefSlot) starBriefSlot.innerHTML = uiStarBrief(null);
+    if (starModalTitle) starModalTitle.textContent = "缔结新星";
+  }
+
+  starModal.hidden = false;
+  syncScrollLock();
+  if (planNameInput) planNameInput.focus();
+}
+
+/**
+ * 关闭星体编辑舱并复位表单。
+ * @returns {void}
+ */
+function closeStarModal() {
+  if (!starModal) return;
+  starModal.hidden = true;
+  resetPlanForm();
+  syncScrollLock();
+}
+
+// ============================ 弹层：设置抽屉 ============================
+
+/**
+ * 打开设置抽屉。
+ * @returns {void}
+ */
+function openSettings() {
+  if (!settingsDrawer) return;
+  settingsDrawer.hidden = false;
+  if (settingsBtn) settingsBtn.setAttribute("aria-expanded", "true");
+  syncScrollLock();
+  if (settingsCloseBtn) settingsCloseBtn.focus();
+}
+
+/**
+ * 关闭设置抽屉。
+ * @returns {void}
+ */
+function closeSettings() {
+  if (!settingsDrawer) return;
+  settingsDrawer.hidden = true;
+  if (settingsBtn) settingsBtn.setAttribute("aria-expanded", "false");
+  syncScrollLock();
+  if (settingsBtn) settingsBtn.focus();
+}
+
 // ============================ 渲染 ============================
 
 /**
- * 渲染计划卡片网格。
+ * 渲染星图主视图（星点 + 星座连线 + 顶部统计）。
  * @returns {void}
  */
-function renderPlanList() {
-  if (!planListEl) return;
-  const plans = loadPlans();
+function renderSky() {
+  skyMap = buildStarMap();
+  if (skyMetaSlot) skyMetaSlot.innerHTML = uiSkyMeta(skyMap);
+  if (skyMapSlot) skyMapSlot.innerHTML = uiStarMap(skyMap, { links: true });
+}
 
-  if (plans.length === 0) {
-    planListEl.innerHTML = "";
-    if (planListEmpty) planListEmpty.hidden = false;
-    return;
-  }
-  if (planListEmpty) planListEmpty.hidden = true;
-
-  planListEl.innerHTML = plans
-    .map((plan) =>
-      uiPlanCard(
-        Object.assign({}, plan, {
-          theme: themeOf(plan),
-          next: nextReminder(plan),
-          streak: computeStreak(plan.id),
-        })
-      )
-    )
-    .join("");
+/**
+ * 渲染顶部时段旁白。
+ * @returns {void}
+ */
+function renderSkyPoem() {
+  if (skyPoemEl) skyPoemEl.textContent = skyPoem();
 }
 
 /**
@@ -320,7 +401,7 @@ function renderLedger() {
     .map((item, index) => {
       const isManual = item.source !== "auto";
       const srcClass = "source-tag" + (isManual ? " is-manual" : "");
-      const srcText = isManual ? "手动确认" : "提醒送达";
+      const srcText = isManual ? "手动点亮" : "提醒送达";
       const icon = item.planIcon || "✅";
       return (
         `<tr data-id="${escapeHtml(item.id || "")}">` +
@@ -352,9 +433,71 @@ function renderPrefs() {
  * @returns {void}
  */
 function renderAll() {
-  renderPlanList();
+  renderSky();
   renderLedger();
 }
+
+// ============================ 事件：星图（委托） ============================
+
+if (skyMapSlot) {
+  skyMapSlot.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-act]");
+    if (!btn || !skyMapSlot.contains(btn)) return;
+    const act = btn.getAttribute("data-act");
+
+    if (act === "new-star") {
+      openStarModal(null);
+      return;
+    }
+    if (act === "star") {
+      const id = btn.getAttribute("data-id");
+      if (id) openStarModal(id);
+    }
+  });
+}
+
+if (newStarBtn) {
+  newStarBtn.addEventListener("click", () => openStarModal(null));
+}
+
+// ============================ 事件：编辑舱开合 ============================
+
+if (starModal) {
+  // 背景遮罩与右上角 × 共用 data-act="close-star"
+  starModal.addEventListener("click", (event) => {
+    const hit = event.target.closest('[data-act="close-star"]');
+    if (hit && starModal.contains(hit)) closeStarModal();
+  });
+}
+
+if (starCloseBtn) {
+  starCloseBtn.addEventListener("click", closeStarModal);
+}
+
+if (settingsBtn) {
+  settingsBtn.addEventListener("click", openSettings);
+}
+
+if (settingsDrawer) {
+  settingsDrawer.addEventListener("click", (event) => {
+    const hit = event.target.closest('[data-act="close-settings"]');
+    if (hit && settingsDrawer.contains(hit)) closeSettings();
+  });
+}
+
+if (settingsCloseBtn) {
+  settingsCloseBtn.addEventListener("click", closeSettings);
+}
+
+// Esc 依次关掉最上层的弹层
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (starModal && !starModal.hidden) {
+    closeStarModal();
+    return;
+  }
+  if (settingsDrawer && !settingsDrawer.hidden) closeSettings();
+});
 
 // ============================ 事件：计划表单 ============================
 
@@ -408,13 +551,13 @@ if (planForm) {
         patch.color = "";
       }
       updatePlan(editingId, patch);
-      showToast("计划已更新", "success");
+      showToast("契约已改写", "success");
     } else {
       addPlan(fields);
-      showToast("计划已添加", "success");
+      showToast("新星已缔结 ✦", "success");
     }
 
-    resetPlanForm();
+    closeStarModal();
     renderAll();
     scheduleAutoSync();
   });
@@ -423,53 +566,21 @@ if (planForm) {
 if (planCancelLink) {
   planCancelLink.addEventListener("click", (event) => {
     event.preventDefault();
-    resetPlanForm();
+    closeStarModal();
   });
 }
 
-// ============================ 事件：计划卡片（委托） ============================
-
-if (planListEl) {
-  planListEl.addEventListener("click", (event) => {
-    const card = event.target.closest(".plan-card");
-    if (!card) return;
-    const id = card.getAttribute("data-id");
-    if (!id) return;
-
-    const btn = event.target.closest("[data-act]");
-    if (!btn) return;
-    const act = btn.getAttribute("data-act");
-
-    if (act === "edit") {
-      const plan = loadPlans().find((p) => p.id === id);
-      if (plan) fillPlanForm(plan);
+if (planDeleteBtn) {
+  planDeleteBtn.addEventListener("click", () => {
+    if (!editingId) return;
+    const plan = loadPlans().find((p) => p.id === editingId);
+    const name = plan ? plan.name : "这颗星";
+    if (!window.confirm(`确定熄灭「${name}」吗？它会从夜空中消失，打卡记录仍然保留。`)) {
       return;
     }
-
-    if (act === "delete") {
-      const plan = loadPlans().find((p) => p.id === id);
-      const name = plan ? plan.name : "该计划";
-      if (!window.confirm(`确定删除「${name}」吗？相关打卡记录会保留。`)) return;
-      deletePlan(id);
-      // 正在编辑的就是被删掉的这条：把表单也复位，避免保存到一个不存在的 id
-      if (editingId === id) resetPlanForm();
-      showToast("计划已删除", "success");
-      renderAll();
-      scheduleAutoSync();
-    }
-  });
-
-  // 启用开关是 checkbox，走 change 而不是 click
-  planListEl.addEventListener("change", (event) => {
-    const box = event.target;
-    if (!box || box.getAttribute("data-act") !== "toggle") return;
-    const card = box.closest(".plan-card");
-    if (!card) return;
-    const id = card.getAttribute("data-id");
-    if (!id) return;
-
-    togglePlan(id);
-    showToast(box.checked ? "计划已启用" : "计划已停用", "success");
+    deletePlan(editingId);
+    showToast("这颗星已熄灭", "success");
+    closeStarModal();
     renderAll();
     scheduleAutoSync();
   });
@@ -480,14 +591,14 @@ if (planListEl) {
 if (prefManualInput) {
   prefManualInput.addEventListener("change", () => {
     prefs = savePrefs({ showManualCheckin: prefManualInput.checked });
-    showToast(prefManualInput.checked ? "仪表盘将显示「标记完成」" : "已隐藏「标记完成」", "success");
+    showToast(prefManualInput.checked ? "天文台将显示「点亮」" : "已隐藏「点亮」", "success");
   });
 }
 
 if (prefHeatmapSelect) {
   prefHeatmapSelect.addEventListener("change", () => {
     prefs = savePrefs({ heatmapSource: prefHeatmapSelect.value });
-    showToast("星图数据来源已更新", "success");
+    showToast("星点图数据来源已更新", "success");
   });
 }
 
@@ -531,7 +642,7 @@ if (importBtn) {
       return;
     }
     const merge = importMergeInput ? importMergeInput.checked : true;
-    if (!merge && !window.confirm("覆盖导入会清空当前的计划与台账，确定继续吗？")) return;
+    if (!merge && !window.confirm("覆盖导入会清空当前的星图与台账，确定继续吗？")) return;
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -541,10 +652,10 @@ if (importBtn) {
         prefs = loadPrefs();
         renderPrefs();
         applyMotionPref();
-        resetPlanForm();
+        closeStarModal();
         renderAll();
         scheduleAutoSync();
-        showToast(`导入完成：计划 ${result.plans} 条，台账 ${result.checkins} 条`, "success");
+        showToast(`导入完成：星 ${result.plans} 颗，台账 ${result.checkins} 条`, "success");
       } catch (err) {
         console.error("导入失败：", err);
         showToast(err.message || "导入失败", "error");
@@ -572,14 +683,14 @@ if (ledgerBody) {
     deleteCheckin(id);
     showToast("记录已删除", "success");
     renderLedger();
-    renderPlanList(); // 连续天数依赖台账，删记录后要跟着更新
+    renderSky(); // 亮度依赖台账，删记录后星图要跟着变暗
     scheduleAutoSync();
   });
 }
 
 if (clearAllBtn) {
   clearAllBtn.addEventListener("click", () => {
-    if (!window.confirm("确定清空全部打卡记录吗？此操作不可撤销（计划会保留）。")) return;
+    if (!window.confirm("确定清空全部点亮记录吗？此操作不可撤销（星本身会保留）。")) return;
     clearAll();
     showToast("台账已清空", "success");
     renderAll();
@@ -636,6 +747,7 @@ function init() {
     if (saved) patInput.value = saved;
   }
 
+  renderSkyPoem();
   renderPrefs();
   resetPlanForm();
   renderAll();
