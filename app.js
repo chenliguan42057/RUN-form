@@ -103,7 +103,13 @@ function renderHeader() {
     loadMindsetQuotes()
       .then((quotes) => {
         const q = dailyMindsetQuote(dateKey(new Date()), quotes);
-        if (q) dailyQuoteEl.innerHTML = uiSkyQuote(q, { from: "RUN-form 心法" });
+        if (!q) return;
+        // ⚠️ 离线 / 404 时 loadMindsetQuotes() 会回落到梵高语录，
+        //    但返回值类型和成功时一样，光看 q 分不出来。
+        //    这里必须查 mindsetQuotesReady()，否则会把梵高的话署成「RUN-form 心法」。
+        dailyQuoteEl.innerHTML = uiSkyQuote(q, {
+          from: mindsetQuotesReady() ? "RUN-form 心法" : "梵高",
+        });
       })
       .catch(() => {});
   }
@@ -147,6 +153,27 @@ function pickFocus() {
 }
 
 /**
+ * ←/→ 键位：在今日计划里按偏移切换「当前聚焦计划」。
+ * offset -1 = 上一颗，+1 = 下一颗；首尾相接成环。
+ * @param {number} offset
+ * @returns {boolean} 是否切换成功
+ */
+function moveFocusPlan(offset) {
+  const list = todayPlans();
+  if (!list.length) return false;
+  let idx = focusPlanId ? list.findIndex((p) => p.id === focusPlanId) : -1;
+  if (idx < 0) {
+    const firstPending = list.findIndex((p) => !p.done);
+    idx = firstPending < 0 ? 0 : firstPending;
+  } else {
+    idx = (idx + (offset || 0) + list.length) % list.length;
+  }
+  focusPlanId = list[idx] ? list[idx].id || null : null;
+  renderNextUp();
+  return true;
+}
+
+/**
  * 刷新倒计时文案（心跳每 30 秒调一次，不重排 DOM）。
  * @returns {void}
  */
@@ -168,10 +195,24 @@ function updateCountdown() {
  * @returns {void}
  */
 function renderNextUp() {
-  const focus = pickFocus();
   const today = todayPlans();
   const doneCount = today.filter((v) => v.done).length;
   const percent = today.length > 0 ? doneCount / today.length : 0;
+
+  let focus = pickFocus();
+  // ←/→ 手动选中的计划优先（仍在今日列表内才生效，否则回落自动聚焦）
+  if (focusPlanId) {
+    const ov = today.find((p) => p.id === focusPlanId);
+    if (ov) {
+      focus = {
+        plan: ov,
+        theme: ov.theme,
+        dueTs: ov.dueTs,
+        overdue: ov.passed === true,
+        whenText: `今天 ${ov.dueTime}`,
+      };
+    }
+  }
 
   if (!focus) {
     focusPlanId = null;
@@ -339,6 +380,7 @@ function renderAll() {
   renderTimeline();
   renderMiniHeatmap();
   renderOfflineChip();
+  renderRank();
 }
 
 // ============================ 心跳 ============================
@@ -365,6 +407,489 @@ function startClock() {
   }, 30000);
 }
 
+/* =====================================================================
+   v6.1 · 备忘录站内提示
+   首页加载时检测「已到期且未完成」的备忘，用 toast 弹一次。
+   去重键 memoId|YYYY-MM-DD 存 localStorage，当天不重复弹；
+   跨天会自动换键，第二天打开仍会提醒，直到用户在星图页标记完成 / 删除。
+   ===================================================================== */
+
+/**
+ * 检测到期备忘并弹站内提示（幂等：同一条备忘同一天只弹一次）。
+ * @returns {void}
+ */
+function checkDueMemos() {
+  if (typeof loadMemos !== "function") return;
+  let due;
+  try {
+    due = dueMemos();
+  } catch (e) {
+    console.error("到期备忘检测异常：", e);
+    return;
+  }
+  if (!due || due.length === 0) return;
+
+  // 只挑今天还没提示过的；多条备忘合并成一条提示，避免 toast 互相覆盖
+  const fresh = due.filter((memo) => memo && memo.id && !isMemoNotified(memo.id));
+  if (fresh.length === 0) return;
+
+  if (fresh.length === 1) {
+    const m = fresh[0];
+    showToast(`⏰ 备忘：${m.title}（${m.due || "未设到期"}）`, "info");
+  } else {
+    const names = fresh
+      .slice(0, 3)
+      .map((m) => m.title)
+      .join("、");
+    const extra = fresh.length > 3 ? ` 等 ${fresh.length} 条` : "";
+    showToast(`⏰ 备忘到点：${names}${extra}`, "info");
+  }
+  fresh.forEach((memo) => markMemoNotified(memo.id));
+}
+
+/* =====================================================================
+   v6 · 星河契约装配层
+   这一段只做「接线」：状态与副作用全在各模块内部，app.js 不重复实现逻辑。
+   两条硬约束：
+     1) renderHeader() 里那两个逻辑块一个字节都没动，段位走独立的 #rank-slot；
+     2) 首页同步加载的新增脚本只有 5 个核心模块（≈43KB，卡在 45KB 预算内），
+        onboarding / focus / shortcuts / ambient 全部 loadModule() 按需注入——
+        老用户不会为一段只看一次的引导动画付流量。
+   ===================================================================== */
+
+/** 已注入过的按需脚本：文件名 → Promise，避免重复插 <script> */
+const moduleCache = {};
+
+/**
+ * 按需注入同目录脚本。
+ * 失败只 resolve(false) 而不 reject——任何 v6 增强都不许拖垮主页面。
+ * @param {string} name 文件名，如 "focus.js"
+ * @returns {Promise<boolean>}
+ */
+function loadModule(name) {
+  if (moduleCache[name]) return moduleCache[name];
+  const task = new Promise((resolve) => {
+    const el = document.createElement("script");
+    el.src = name;
+    el.async = true;
+    el.addEventListener("load", () => resolve(true));
+    el.addEventListener("error", () => {
+      console.error("按需模块加载失败：", name);
+      // 弱网 / SW 未命中时静默失败会让用户「按了没反应」，仅当次会话提示一次
+      if (!loadModule._warned) {
+        loadModule._warned = true;
+        try {
+          if (typeof showToast === "function") {
+            showToast("有个小模块没加载上，功能暂不可用，刷新或联网后重试 ✦", "warn");
+          }
+        } catch (e) {
+          /* 忽略：提示本身失败不能阻断 */
+        }
+      }
+      resolve(false);
+    });
+    document.body.appendChild(el);
+  });
+  moduleCache[name] = task;
+  return task;
+}
+
+// ---------------------------- C1 段位徽章 ----------------------------
+
+/**
+ * 渲染页头段位徽章。rank.js 没加载或算不出来时整块留空，页头照常。
+ * @returns {void}
+ */
+function renderRank() {
+  const slot = $("rank-slot");
+  if (!slot) return;
+  if (!window.Rank || typeof uiRankBadge !== "function") {
+    slot.hidden = true;
+    return;
+  }
+  let html = "";
+  try {
+    html = uiRankBadge(window.Rank.getRank());
+  } catch (err) {
+    console.error("段位渲染异常：", err);
+    html = "";
+  }
+  slot.innerHTML = html;
+  slot.hidden = html === "";
+}
+
+// ---------------------------- B1 打卡仪式 ----------------------------
+
+/**
+ * 打卡之后的全部仪式。顺序是刻意排的：
+ * 先给即时反馈（星屑 / 声音），再问一句情绪，庆典压到最后——
+ * 三层动效同时出会糊成一团，看着像卡了。
+ * @param {Element} el 触发按钮，星屑从它的中心炸开
+ * @param {Object|null} item addCheckin() 返回的记录
+ * @param {Object|null} rankBefore 打卡前的段位快照
+ * @returns {void}
+ */
+function afterCheckin(el, item, rankBefore) {
+  const id = item && item.id ? item.id : null;
+
+  try {
+    if (window.Celebrate) window.Celebrate.onCheckin(el, id);
+  } catch (err) {
+    console.error("打卡仪式异常：", err);
+  }
+
+  if (id) askMood(id);
+
+  // 升段 / 里程碑都要等 checkin 落盘后再算，否则算的是打卡前的旧数
+  window.setTimeout(() => {
+    try {
+      if (rankBefore && window.Rank && window.Celebrate) {
+        const now = window.Rank.getRank();
+        if (now.key !== rankBefore.key) {
+          window.Celebrate.celebrateRankUp(rankBefore, now);
+          renderRank();
+          // 升段横幅已经占了屏，里程碑让给下一次，不叠着放
+          return;
+        }
+      }
+      if (window.Celebrate) {
+        const days = window.Celebrate.pendingMilestone();
+        if (days) window.Celebrate.celebrateMilestone(days);
+      }
+    } catch (err) {
+      console.error("庆典判定异常：", err);
+    }
+  }, 900);
+}
+
+// ---------------------------- C3 情绪速记 ----------------------------
+
+/** 正在等情绪的 checkin id；为空表示情绪卡该收起来 */
+let moodTarget = null;
+
+/**
+ * 收起情绪卡。
+ * @returns {void}
+ */
+function closeMood() {
+  moodTarget = null;
+  const card = $("mood-card");
+  if (card) card.hidden = true;
+}
+
+/**
+ * 打卡后弹一次情绪速记（五档 + 一句话，可以完全不理）。
+ * ⚠️ 情绪只写旁路表 runform_mood，checkin 仍是七字段——
+ *    同步 payload 结构一个字节都不变。
+ * @param {string} id 打卡记录 id
+ * @returns {void}
+ */
+function askMood(id) {
+  const card = $("mood-card");
+  const slot = $("mood-slot");
+  if (!card || !slot || !window.MoodStore || typeof uiMoodPicker !== "function") return;
+
+  moodTarget = id;
+  const cur = window.MoodStore.getMood(id);
+  slot.innerHTML = uiMoodPicker({
+    moods: window.MoodStore.MOODS,
+    selected: cur ? cur.m : "",
+    note: cur ? cur.note : "",
+    max: window.MoodStore.NOTE_MAX,
+  });
+  card.hidden = false;
+}
+
+/**
+ * 把当前选择写进旁路表。
+ * @param {string} key 情绪 key
+ * @returns {void}
+ */
+function saveMood(key) {
+  if (!moodTarget || !window.MoodStore) return;
+  const box = $("mood-note");
+  const entry = window.MoodStore.recordMood(moodTarget, {
+    m: key,
+    note: box ? box.value : "",
+  });
+  if (!entry) {
+    showToast("这个心情没记上，再点一次试试", "error");
+    return;
+  }
+  const def = window.MoodStore.MOODS.find((m) => m.key === key);
+  showToast(`记下了：${def ? def.icon + " " + def.name : key}`, "success");
+  closeMood();
+}
+
+// ---------------------------- B3 静坐一程 ----------------------------
+
+/** focus.js 是否已经装好并接上 UI */
+let focusReady = false;
+
+/** 表盘上当前选中的分钟数（未开始时才可改），初值取偏好里的默认时长 */
+let focusMinutes = prefs.focusMinutes || 25;
+
+/**
+ * 把 Focus.state() 的原始快照翻译成 uiFocusDial() 要的形状。
+ * 模块给的是 percent 0~1 / remain 毫秒，组件要的是 0~100 / 剩余秒——
+ * 换算放在这里，两边各自保持自己的自然单位。
+ * @returns {Object} uiFocusDial 的入参
+ */
+function focusView() {
+  const st = window.Focus ? window.Focus.state() : null;
+  if (!st || !st.active) {
+    return { minutes: focusMinutes, left: focusMinutes * 60, percent: 0, phase: "idle" };
+  }
+  return {
+    minutes: st.minutes,
+    left: Math.ceil(st.remain / 1000),
+    percent: Math.round(st.percent * 100),
+    phase: st.done ? "done" : st.paused ? "paused" : "running",
+    planName: st.planName,
+  };
+}
+
+/**
+ * 重绘专注表盘。
+ * @returns {void}
+ */
+function renderFocus() {
+  const slot = $("focus-slot");
+  if (!slot || typeof uiFocusDial !== "function") return;
+  slot.innerHTML = uiFocusDial(focusView());
+}
+
+/**
+ * 渲染 / 折叠专注记录。
+ * @param {boolean} show 是否展开
+ * @returns {void}
+ */
+function renderFocusLog(show) {
+  const box = $("focus-log");
+  if (!box || !window.Focus) return;
+  if (!show) {
+    box.hidden = true;
+    return;
+  }
+  const rows = window.Focus.history(12).slice().reverse();
+  if (rows.length === 0) {
+    box.innerHTML = uiEmpty("还没有坐过一程。第一次总是最难开始的。", "🕯");
+    box.hidden = false;
+    return;
+  }
+  box.innerHTML =
+    `<div class="focus-log">` +
+    rows
+      .map((r) => {
+        const when = new Date(Number(r.endTs) || Date.now());
+        const stamp =
+          `${when.getMonth() + 1}/${when.getDate()} ` +
+          `${String(when.getHours()).padStart(2, "0")}:` +
+          `${String(when.getMinutes()).padStart(2, "0")}`;
+        const tag = r.converted ? "✦ 成星" : r.completed ? "✓ 坐满" : "· 中途起身";
+        return (
+          `<div class="focus-log-row"><span>${stamp}</span>` +
+          `<span>${escapeHtml(r.planName || "不为哪颗星")}</span>` +
+          `<span>${Number(r.minutes) || 0} 分 ${tag}</span></div>`
+        );
+      })
+      .join("") +
+    `</div>`;
+  box.hidden = false;
+}
+
+/**
+ * 挂上专注模块：绑事件、订阅 tick、恢复上次未走完的会话。
+ * 只跑一次。
+ * @returns {void}
+ */
+function bindFocus() {
+  if (focusReady || !window.Focus) return;
+  focusReady = true;
+
+  const card = $("focus-card");
+  const slot = $("focus-slot");
+  if (card) card.hidden = false;
+
+  if (slot) {
+    slot.addEventListener("click", (e) => {
+      const min = e.target.closest("[data-focus-min]");
+      if (min) {
+        focusMinutes = Number(min.getAttribute("data-focus-min")) || 25;
+        renderFocus();
+        return;
+      }
+      const btn = e.target.closest("[data-focus]");
+      if (!btn) return;
+      const act = btn.getAttribute("data-focus");
+
+      if (act === "start") {
+        // 用户手势就这一下，音频解锁必须搭在这里
+        if (window.Sensory) window.Sensory.unlock();
+        const focus = pickFocus();
+        window.Focus.startFocus(
+          focusMinutes,
+          focus ? focus.plan.id : null,
+          focus ? focus.plan.name : ""
+        );
+        showToast(`开始 ${focusMinutes} 分钟 · 别急`, "success");
+      } else if (act === "pause") {
+        window.Focus.pause();
+      } else if (act === "resume") {
+        window.Focus.resume();
+      } else if (act === "abort") {
+        window.Focus.abort();
+        showToast("这一程放下了，不记账", "info");
+      } else if (act === "convert") {
+        const before = window.Rank ? window.Rank.getRank() : null;
+        const item = window.Focus.convertToStar();
+        if (item) {
+          showToast("这一程，成了一颗星 ✦", "success");
+          afterCheckin(btn, item, before);
+          renderAll();
+        }
+      }
+      renderFocus();
+    });
+  }
+
+  const logBtn = $("focus-log-btn");
+  if (logBtn) {
+    logBtn.addEventListener("click", () => {
+      const box = $("focus-log");
+      const willShow = Boolean(box && box.hidden);
+      renderFocusLog(willShow);
+      logBtn.textContent = willShow ? "收起" : "看记录";
+    });
+  }
+
+  window.Focus.onTick(() => renderFocus());
+  window.Focus.onFinish(() => {
+    renderFocus();
+    showToast("时间到。这一程你坐住了。", "success");
+  });
+
+  window.Focus.restore();
+  renderFocus();
+}
+
+// ---------------------------- D4 快捷键 ----------------------------
+
+/**
+ * 绑快捷键与 PWA 下拉手势。
+ * @returns {void}
+ */
+function bindShortcuts() {
+  if (!window.Shortcuts) return;
+  window.Shortcuts.init({
+    check: () => {
+      if (manualCheckBtn.hidden) {
+        showToast("「点亮」按钮当前是关着的，去星图页设置里开", "info");
+        return;
+      }
+      manualCheckBtn.click();
+    },
+    pull: () => {
+      if (!manualCheckBtn.hidden) manualCheckBtn.click();
+    },
+    focus: () => {
+      loadModule("focus.js").then(() => {
+        bindFocus();
+        const st = window.Focus ? window.Focus.state() : null;
+        if (!st || !st.active) {
+          if (window.Sensory) window.Sensory.unlock();
+          window.Focus.startFocus(focusMinutes, null, "");
+        } else if (st.paused) {
+          window.Focus.resume();
+        } else {
+          window.Focus.pause();
+        }
+        renderFocus();
+        const card = $("focus-card");
+        if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+      });
+    },
+    theme: () => {
+      if (!window.Theme) return;
+      const list = window.Theme.THEMES;
+      const now = window.Theme.resolved();
+      const next = list[(list.indexOf(now) + 1) % list.length];
+      window.Theme.setMode("manual", next);
+      const meta = window.Theme.META[next];
+      showToast(`天色换成「${meta ? meta.name : next}」`, "success");
+    },
+    silent: () => {
+      if (!window.Sensory) return;
+      const on = !window.Sensory.isSilent();
+      window.Sensory.setSilent(on);
+      showToast(on ? "静默了。只留画面。" : "声音回来了 ♪", "success");
+    },
+    goto: () => {
+      location.href = "manage.html";
+    },
+    escape: () => {
+      closeMood();
+    },
+    planPrev: () => moveFocusPlan(-1),
+    planNext: () => moveFocusPlan(1),
+  });
+}
+
+// ---------------------------- 装配总入口 ----------------------------
+
+/**
+ * 首屏画完之后再做的事：按需拉模块、弹引导、起环境动效。
+ * 全部包在 try 里——v6 的任何一环坏掉，天文台主体都得照常显示。
+ * @returns {void}
+ */
+function bootV6() {
+  // 情绪卡与段位徽章用事件委托，写一次就够
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest) return;
+
+    const rank = e.target.closest('[data-act="rank-detail"]');
+    if (rank) {
+      location.href = "stats.html#rank";
+      return;
+    }
+    const chip = e.target.closest("[data-mood]");
+    if (chip) {
+      saveMood(chip.getAttribute("data-mood"));
+      return;
+    }
+    if (e.target.closest("#mood-skip")) closeMood();
+  });
+
+  document.addEventListener("input", (e) => {
+    if (!e.target || e.target.id !== "mood-note") return;
+    const n = $("mood-count");
+    if (n) n.textContent = String(e.target.value.length);
+  });
+
+  if (window.Theme) window.Theme.startAutoWatch();
+
+  // 第一次来的人：先签契约，签完再谈别的
+  if (localStorage.getItem("runform_contract") === null) {
+    loadModule("onboarding.js").then(() => {
+      if (window.Onboarding && window.Onboarding.needed()) window.Onboarding.open();
+    });
+  }
+
+  loadModule("focus.js").then((ok) => {
+    if (ok) bindFocus();
+  });
+
+  loadModule("shortcuts.js").then((ok) => {
+    if (ok) bindShortcuts();
+  });
+
+  // 环境动效默认不开：必须用户手动开过，或者「在充电 + Wi-Fi」——
+  // 不能在别人流量 + 20% 电量的手机上偷偷跑粒子。
+  loadModule("ambient.js").then((ok) => {
+    if (ok && window.Ambient) window.Ambient.autoStart();
+  });
+}
+
 // ============================ 事件绑定 ============================
 
 manualCheckBtn.addEventListener("click", () => {
@@ -378,8 +903,10 @@ manualCheckBtn.addEventListener("click", () => {
     renderAll();
     return;
   }
-  addCheckin(plan.id, plan.name);
+  const rankBefore = window.Rank ? window.Rank.getRank() : null;
+  const item = addCheckin(plan.id, plan.name);
   showToast(`已点亮：${plan.name} ✦`, "success");
+  afterCheckin(manualCheckBtn, item, rankBefore);
   renderAll();
   scheduleAutoSync();
 });
@@ -407,6 +934,20 @@ window.addEventListener("storage", (e) => {
   uiTooltip(document.body);
   uiRevealOnLoad(appRoot);
   startClock();
+
+  // v6 装配放在首屏画完之后，保证「天文台能看」永远优先于「天文台好看」
+  try {
+    bootV6();
+  } catch (err) {
+    console.error("v6 装配异常（不影响主页面）：", err);
+  }
+
+  // v6.1 备忘录站内提示：首屏画完再弹，避免遮挡初始化 toast
+  try {
+    checkDueMemos();
+  } catch (err) {
+    console.error("备忘录站内提示异常（不影响主页面）：", err);
+  }
 
   // 异步拉取提醒送达记录，回来后再刷一次（失败会静默降级读缓存）
   loadReminderLog()
