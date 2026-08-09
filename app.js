@@ -974,7 +974,8 @@ window.addEventListener("storage", (e) => {
   // 这正是「加了备忘/计划却不同步、钉钉不提醒」的根因——数据出不了浏览器。
   try {
     const __tok = (typeof resolveToken === "function") ? resolveToken() : "";
-    if (!__tok) {
+    const __proxy = (typeof resolveProxyUrl === "function") ? resolveProxyUrl() : "";
+    if (!__tok && !__proxy) {
       const __localData =
         (typeof loadMemos === "function" && loadMemos().length) ||
         (typeof loadPlans === "function" && loadPlans().length) ||
