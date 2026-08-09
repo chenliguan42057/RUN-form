@@ -789,13 +789,31 @@ if (memoForm) {
     if (memoDueInput) memoDueInput.value = "";
     renderMemos();
     scheduleAutoSyncMemos();
-    // 诚实反馈：没配 Token 时备忘只存本机，【不会】推钉钉（根因常是 Token 没进浏览器）
+    // 反馈：有 Token 或有代理地址 → 备忘会同步上云、到点推钉钉；否则只存本机
     const __hasToken = typeof resolveToken === "function" ? !!resolveToken() : false;
-    if (__hasToken) {
+    const __hasProxy =
+      typeof resolveProxyUrl === "function" ? !!resolveProxyUrl() : false;
+    if (__hasToken || __hasProxy) {
       showToast("备忘已记下，到点会推钉钉 ⏰", "success");
     } else {
-      showToast("备忘已存到本机；未配置 GitHub Token，不会推钉钉。去「管理」页填 Token 即可开启", "warning");
+      showToast(
+        "备忘已存到本机；未配置 GitHub Token 或同步代理，不会推钉钉。去「管理」页填 Token 或代理地址即可开启",
+        "warning"
+      );
     }
+  });
+}
+
+// 管理页「同步代理地址」输入框：写进 localStorage，优先级高于内置 SYNC_PROXY_URL
+const proxyInputEl = document.getElementById("proxy-url-input");
+if (proxyInputEl) {
+  const __savedProxy =
+    typeof safeGetItem === "function" ? safeGetItem(PROXY_URL_KEY) : "";
+  if (__savedProxy) proxyInputEl.value = __savedProxy;
+  proxyInputEl.addEventListener("change", () => {
+    const v = proxyInputEl.value.trim();
+    if (typeof safeSetItem === "function") safeSetItem(PROXY_URL_KEY, v);
+    showToast(v ? "已保存同步代理地址" : "已清除同步代理地址", "success");
   });
 }
 
