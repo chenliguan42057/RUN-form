@@ -969,4 +969,22 @@ window.addEventListener("storage", (e) => {
   } catch (err) {
     console.error("首屏自动同步触发异常（不影响主页面）：", err);
   }
+
+  // 若本地有数据但没配 Token：给一次性根因提示。
+  // 这正是「加了备忘/计划却不同步、钉钉不提醒」的根因——数据出不了浏览器。
+  try {
+    const __tok = (typeof resolveToken === "function") ? resolveToken() : "";
+    if (!__tok) {
+      const __localData =
+        (typeof loadMemos === "function" && loadMemos().length) ||
+        (typeof loadPlans === "function" && loadPlans().length) ||
+        (typeof loadCheckins === "function" && loadCheckins().length);
+      if (__localData && !sessionStorage.getItem("runform_no_token_hinted")) {
+        sessionStorage.setItem("runform_no_token_hinted", "1");
+        setTimeout(() => showToast("本机有未同步数据，但未配置 GitHub Token：不会自动同步到云端，钉钉也不会提醒。去「管理」页填 Token 开启。", "warning"), 1400);
+      }
+    }
+  } catch (err) {
+    console.error("Token 提示检查异常：", err);
+  }
 })();
