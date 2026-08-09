@@ -4,7 +4,39 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#060a16" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="星河契约" />
   <title>星图 · 星河契约</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+  <!-- v6 主题防闪：必须在 styles.css 之前落 data-theme，否则会先闪一帧默认色 -->
+  <script>
+    (function () {
+      try {
+        var mode = "auto";
+        var value = "";
+        var raw = localStorage.getItem("runform_theme");
+        if (raw) {
+          var o = JSON.parse(raw);
+          if (o && typeof o === "object") {
+            mode = o.mode === "manual" ? "manual" : "auto";
+            value = typeof o.value === "string" ? o.value : "";
+          }
+        }
+        var t = mode === "manual" && value ? value : "";
+        if (!t) {
+          var h = new Date().getHours();
+          t = h < 5 ? "polar" : h < 8 ? "dawn" : h < 18 ? "origin" : "midnight";
+        }
+        if (t && t !== "origin") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        /* 读不到就用默认主题，绝不因此白屏 */
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -46,6 +78,39 @@
       <p class="sky-hint">
         点一颗星可以改写它的契约 · 越坚持，它越亮 · 停用的星会熄灭但不会消失
       </p>
+    </section>
+
+    <!-- ==================== 备忘录（一次性临时事项提醒） ==================== -->
+    <section class="card memo-card">
+      <div class="card-head">
+        <h2 class="card-title">📌 备忘录</h2>
+        <p class="memo-sub">记一条临时事项，到点提醒你（钉钉 + 站内提示双通道）</p>
+      </div>
+
+      <form id="memo-form" class="checkin-form memo-form">
+        <div class="field-row">
+          <div>
+            <label for="memo-title" class="field-label">事项</label>
+            <input
+              type="text"
+              id="memo-title"
+              class="input"
+              maxlength="60"
+              placeholder="如：周五 14:00 交房租"
+              autocomplete="off"
+            />
+          </div>
+          <div>
+            <label for="memo-due" class="field-label">到期时间</label>
+            <input type="datetime-local" id="memo-due" class="input" />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-vg-gold" id="memo-add-btn">记下</button>
+        </div>
+      </form>
+
+      <div id="memo-list"><!-- app2.js 渲染 --></div>
     </section>
 
     <footer class="footer">
@@ -189,6 +254,9 @@
             Token 仅存本机浏览器 localStorage，<strong>不发往第三方</strong>；填好后会自动同步。
             权限：Classic 勾 <code>repo</code>；Fine-grained 给
             <code>Contents: read &amp; write</code> + <code>Metadata: read</code>。
+            安全提示：
+            <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">定期在 GitHub 轮换</a>
+            可降低泄露风险；如怀疑 token 已暴露，应立即在 GitHub 撤销并重新生成。
           </p>
 
           <div class="form-actions">
@@ -246,6 +314,58 @@
           </p>
         </section>
 
+        <!-- v6 · 天色（四季主题） -->
+        <section class="drawer-sec" id="theme-card">
+          <h3 class="drawer-sec-title">🌗 天色</h3>
+          <div id="theme-slot-v6"><!-- uiThemeSwitch 注入 --></div>
+        </section>
+
+        <!-- v6 · 感官：静默总开关 + 白噪音 -->
+        <section class="drawer-sec" id="sensory-card">
+          <h3 class="drawer-sec-title">🔊 声音与触感</h3>
+          <label class="checkbox-row">
+            <input type="checkbox" id="pref-silent" />
+            <span>静默模式（不出声、不震动，只留画面）</span>
+          </label>
+          <p class="setting-note">
+            静默是一票否决：开着它，下面的白噪音与所有打卡音效都不会响。
+          </p>
+          <div id="wn-slot" class="field-label-gap"><!-- uiWhiteNoise 注入 --></div>
+        </section>
+
+        <!-- v6 · 环境动效 + 星幕：能力不支持时整块由 app2.js 隐藏 -->
+        <section class="drawer-sec" id="ambient-card" hidden>
+          <h3 class="drawer-sec-title">🌌 环境动效</h3>
+          <label class="checkbox-row">
+            <input type="checkbox" id="pref-ambient" />
+            <span>让背景的星缓慢流动</span>
+          </label>
+          <p class="setting-note">
+            默认关闭。不手动开的话，只有「充电中 + Wi-Fi」时才会自己亮起来；
+            帧率掉下去会自动减粒子，再掉就自己停。
+          </p>
+        </section>
+
+        <section class="drawer-sec" id="screensaver-card" hidden>
+          <h3 class="drawer-sec-title">🕯 星幕</h3>
+          <label class="checkbox-row">
+            <input type="checkbox" id="pref-screensaver" />
+            <span>闲置 3 分钟后进入星幕（时钟 + 连续天数）</span>
+          </label>
+          <div class="poster-acts">
+            <button type="button" class="btn btn-ghost btn-sm" id="ss-now">现在就进星幕</button>
+          </div>
+          <p class="setting-note">
+            星幕期间会请求保持屏幕常亮；退出时立刻释放。不支持的浏览器看不到这一节。
+          </p>
+        </section>
+
+        <!-- v6 · 星图互鉴 -->
+        <section class="drawer-sec" id="friend-card">
+          <h3 class="drawer-sec-title">🔭 星图互鉴</h3>
+          <div id="fm-slot"><!-- uiFriendCompare 注入 --></div>
+        </section>
+
         <!-- 星光台账 -->
         <section class="drawer-sec" id="ledger-card">
           <details class="collapsible">
@@ -272,6 +392,27 @@
         <!-- 语录库扩充：网页端贴句子 → repository_dispatch → add-quotes.yml 由 Actions 写回仓库 -->
         <section class="drawer-sec" id="quotes-card">
           <h3 class="drawer-sec-title">✍️ 扩充语录库</h3>
+
+          <div class="quote-status">
+            <div class="quote-status-tile">
+              <span class="quote-status-value" id="quote-total-count">—</span>
+              <span class="quote-status-label">语录库总条数</span>
+            </div>
+            <div class="quote-status-tile">
+              <span class="quote-status-value" id="quote-preview-count">0</span>
+              <span class="quote-status-label">本次将新增</span>
+            </div>
+            <div class="quote-status-tile">
+              <span class="quote-status-value" id="quote-duplicate-count">0</span>
+              <span class="quote-status-label">已有重复</span>
+            </div>
+          </div>
+
+          <div id="quote-duplicate-box" class="quote-dup-hint" hidden>
+            <strong>以下句子语录库里已经有了，提交会自动跳过：</strong>
+            <ul id="quote-duplicate-list"></ul>
+          </div>
+
           <p class="setting-note">
             每行一句，会<strong>追加到 <code>data/quotes.json</code> 末尾</strong>。
             首页「星语」与早晚 09:10 / 21:10 两条钉钉推送共用这一份库，
@@ -286,7 +427,6 @@
             placeholder="别停，你已经走了这么远。&#10;你现在做的一切，都在为将来的你铺路。"></textarea>
 
           <p class="setting-note">
-            将新增 <strong id="quote-preview-count">0</strong> 条 ·
             提交后 GitHub Actions 约 1 分钟写回仓库，Pages 重新发布后首页生效。
           </p>
 
@@ -303,11 +443,41 @@
     </aside>
   </div>
 
+  <!-- v6 星屑画布（z-index 60，永不吃点击） -->
+  <canvas id="fx-layer" aria-hidden="true"></canvas>
+  <!-- v6 浮层挂载点（z-index 80，toast 仍在其上） -->
+  <div id="overlay-root"></div>
+
   <!-- 全局 toast 提示容器 -->
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- ⚠️ 加载顺序固定：store.js → components.js → app2.js -->
+  <!-- PWA：注册 Service Worker（异步，不阻塞页面） -->
+  <script src="register-sw.js"></script>
+  <!-- 背景图 blur-up：高清图加载完后淡出低清占位 -->
+  <script>
+    (function () {
+      const img = new Image();
+      img.src = "assets/bg-vangogh-ocean.webp";
+      if (img.complete) {
+        document.body.classList.add("bg-ready");
+      } else {
+        img.addEventListener("load", function () {
+          document.body.classList.add("bg-ready");
+        });
+      }
+    })();
+  </script>
+  <!-- ⚠️ 加载顺序固定：store.js → v6 模块 → components.js → app2.js
+       星图页承载设置抽屉：四季主题 / 星轨背景 / 屏保 / 白噪音 / 星图互鉴的开关都在这儿。 -->
   <script src="store.js"></script>
+  <script src="sensory.js"></script>
+  <script src="theme.js"></script>
+  <script src="rank.js"></script>
+  <script src="whitenoise.js"></script>
+  <script src="ambient.js"></script>
+  <script src="screensaver.js"></script>
+  <script src="friendmap.js"></script>
+  <script src="shortcuts.js"></script>
   <script src="components.js"></script>
   <script src="app2.js"></script>
 </body>
