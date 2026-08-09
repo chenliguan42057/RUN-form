@@ -16,6 +16,11 @@ v3 的全部数据、键名与函数原样保留。副标题仍然是那句 **�
 纯静态实现：**HTML / CSS / JS，无构建步骤、无框架、无依赖**，
 所有数据默认存在浏览器本地（localStorage）。
 
+**v6「星河契约」** 在 v4 之上只做加法：新增 14 个零依赖 IIFE 模块——
+打卡仪式、段位体系、专注星盘、当夜星图海报、天色主题、情绪速记与光谱、回望、互鉴、
+白噪音、环境光、星幕、快捷键与契约引导。能力门控模块在不支持的设备上整块隐藏，
+所有增强默认克制，详见下方「v6 特性与模块索引」。
+
 > 线上地址：https://chenliguan42057.github.io/RUN-form/
 
 ---
@@ -27,12 +32,16 @@ RUN-form/
 ├── index.html                      # 观星台：天象旁白 / 四枚天象指标 / 今晚的星轨 / 星点热力 / 星语
 ├── manage.html                     # 星图编辑器：星空画布 / 缔结新星 / 编辑与熄灭 / ✦ 设置抽屉
 ├── stats.html                      # 星历：我的星途（星轨）/ 星座亮度条 / 月历星图 / 徽章 / 频率分布
-├── styles.css                      # 深色星河玻璃拟态样式（6 套主题配色 + v3/v4 全部动效）
+├── styles.css                      # 深色星河玻璃拟态样式（6 套主题配色 + v3/v4/v6 全部动效，v6 关键帧均包在 no-preference 媒体查询内）
 ├── store.js                        # 共享数据与计算层（三个页面都要最先加载它）
 ├── components.js                   # 共享 UI 生成器（ui* 纯函数，依赖 store.js）
-├── app.js                          # 仪表盘逻辑
-├── app2.js                         # 管理页逻辑
-├── app3.js                         # 统计页逻辑
+├── app.js                          # 仪表盘逻辑（含 v6 首页装配层）
+├── app2.js                         # 管理页逻辑（含 v6 设置装配层）
+├── app3.js                         # 统计页逻辑（含 v6 星历装配层）
+├── sensory.js / theme.js / rank.js / mood.js / celebrate.js   # v6 基础模块（首页同步加载）
+├── focus.js / onboarding.js / review.js / shortcuts.js        # v6 交互模块（按需 loadModule 注入）
+├── ambient.js / whitenoise.js / screensaver.js                # v6 能力门控模块（不支持则整块隐藏）
+├── friendmap.js / poster.js                                     # v6 互鉴 / 海报模块（按需注入）
 ├── data/
 │   ├── plans.json                  # 同步上来的计划（钉钉提醒读这个文件）
 │   ├── checkins.json               # 同步上来的打卡台账
@@ -63,6 +72,13 @@ store.js  →  components.js  →  app.js / app2.js / app3.js
   所有用户数据在函数内部就已经过 `escapeHtml`，调用方直接塞 `innerHTML` 是安全的。
 - `appN.js`：页面脚本，取 DOM、组织流程、绑事件。只有这一层才允许声明
   `const $ = (id) => document.getElementById(id)`。
+
+### v6 模块加载策略（首页 45KB 预算）
+
+首页同步加载 `store.js → components.js →` 5 个核心 v6 模块（`sensory / theme / rank / mood / celebrate`），
+其余 6 个模块（`onboarding / focus / whitenoise / shortcuts / ambient / screensaver`）由页面脚本里的
+`loadModule(name)` 按需注入 `<script async>`（Promise 缓存，失败仅 `resolve(false)` 不阻断主流程）。
+星历页与管理页通过各自装配层调用 `ui*` 渲染器挂载板块。
 
 ---
 
@@ -132,6 +148,43 @@ store.js  →  components.js  →  app.js / app2.js / app3.js
 
 > ⚠️ **停用的计划恒为 0 级**（星星熄灭）；启用中的计划**至少 1 级微光**，
 > 不会因为一次没打卡就完全看不见。
+
+---
+
+## v6 特性与模块索引（星河契约）
+
+v6 在 v4 之上**只做加法**：新增 14 个零依赖 IIFE 模块，暴露 `window.*` 命名空间，
+由三页装配层接线。所有增强默认克制，能力门控模块在不支持的设备上**整块隐藏 DOM**。
+
+| 模块 | 命名空间 | 特性 | 层级 |
+| ---- | -------- | ---- | ---- |
+| `sensory.js` | `Sensory` | 静默总线：`setSilent()` 一票否决白噪音与所有音效；用户手势处 `unlock()` 解锁音频 | 基础 |
+| `theme.js` | `Theme` | 天色四态 `origin / midnight / polar / dawn`，`startAutoWatch()` 自动跟随系统 | C2 |
+| `rank.js` | `Rank` | 段位体系；`score = totalActive×1 + bestStreak×2 + currentStreak×1`；**隐藏顶阶=「长明」** | B2/C1 |
+| `mood.js` | `Mood` | 情绪速记，**5 维**（full/glow/calm/low/edge），写 localStorage 旁路表，与 checkin 7 字段分离 | C3 |
+| `celebrate.js` | `Celebrate` | 打卡仪式：点亮星点绽放 + 段位晋升欢呼；里程碑（`pendingMilestone`）补放 | B1/D1 |
+| `focus.js` | `Focus` | 专注星盘，计时结束 `convertToStar()` 转为一次打卡 | B3 |
+| `onboarding.js` | `Onboarding` | 契约引导浮层，首访 `open()`，注入 `#overlay-root` | 引导 |
+| `review.js` | `Review` | 回望：按周/月生成星途回望文案与短诗 | C5 |
+| `shortcuts.js` | `Shortcuts` | 全局快捷键（打卡/拉取/专注/主题/静默/逃逸），`init()` 注入 | D4 |
+| `ambient.js` | `Ambient` | 环境光：`isSupported()` 不支持则整块隐藏；`autoStart()` 自动点亮 | D(门控) |
+| `whitenoise.js` | `WhiteNoise` | 白噪音场景切换，`SCENES`；受 `Sensory` 静默总线一票否决 | D2 |
+| `screensaver.js` | `Screensaver` | 星幕屏保：`isSupported()` 门控，`armIdle()` 空闲触发 | D(门控) |
+| `friendmap.js` | `FriendMap` | 互鉴：编码 `SR1-XXXX-XXXX-XX` 比对星途，不传任何个人数据 | D3 |
+| `poster.js` | `Poster` | 当夜星图海报：`build()` / `download()`；**无二维码**，右下角署名「RUN-form 星河契约」 | B4 |
+
+### v6 硬约束（自测已验证）
+
+- **隐藏顶阶 = 「长明」**：`Rank` 表末位不展示，UI 不暴露「满级」概念。
+- **段位分公式**：`score = totalActive×1 + bestStreak×2 + currentStreak×1`。
+- **海报无二维码**，右下角固定署名「RUN-form 星河契约」。
+- **层级 z-index**：toast ≥ 100，浮层（overlay / 引导 / 星幕）= 80，互不遮挡。
+- **移动端下拉手势**：仅 PWA `standalone` 模式下接管，浏览器普通访问不拦截原生下拉刷新。
+- **情绪 5 维**：`full / glow / calm / low / edge`，维度固定不可增减。
+- **P2 默认关闭 + 能力门控**：白噪音、环境光、星幕等增强默认不开启；`Ambient.isSupported()` /
+  `Screensaver.isSupported()` 返回 false 时对应 DOM 卡 `hidden`，不渲染控制项。
+- **降级**：所有 v6 `@keyframes` 与 `animation` 声明包在 `@media (prefers-reduced-motion: no-preference)` 内；
+  `renderHeader()`（app.js）字节级不变，段位走独立 `#rank-slot`。
 
 ---
 
@@ -445,6 +498,8 @@ GitHub 会对「60 天无仓库活动」的仓库**自动停用全部 `on.schedu
   `star-breathe` / `star-beam-flare` / `link-flow` / `modal-in` / `drawer-in` /
   `comet-glow` / `rail-halo` / `mg-pop` / `track-rise` / `track-float` /
   `bright-grow` / `quote-glow` / `cheer-glow` 一律遵守。
+  v6 新增的 `fx-pulse`（打卡绽放）/ `fx-banner`（段位晋升横幅）/ `oath-in`（契约引导进场）/
+  `ss-in`（星幕淡入）同样包在 `no-preference` 内，且基础类只保留非动效属性，降级时不残留透明态。
 - 每条 v4 关键帧的 `100%` 都是**稳定的静止态**，所以动画即使被掐断，元素也停在正确的最终样子上。
 - 系统开启「减少动态效果」时自动降级：`animation-duration: 0.001ms !important`，
   JS 侧的 `PREFERS_REDUCED` 常量同步生效，数字直接跳终值、进度环直接画满。
@@ -582,6 +637,19 @@ v1 的打卡记录形如 `{id, ts, content}`，没有计划概念。v2 首次加
   渲染器，v3 的老函数一个没删，仍可被调用。
 - 唯一的**行为变化**是位置：管理页的「同步到 GitHub 仓库」「备份与恢复」两张卡片
   从主视野搬进了 ✦ 设置抽屉。id 与逻辑不变，用惯 v3 的人只需要多点一下齿轮。
+
+### v4 → v6
+
+**零强制迁移。刷新即可。**
+
+- 数据模型字段一个都没改：localStorage 键名 `runform_plans` / `runform_checkins` / `runform_pat` /
+  `runform_prefs` / `runform_reminder_cache` 全部沿用；`checkin` 仍是 7 字段
+  （`id / planId / planName / ts / note / planIcon / source`），情绪速记写入**独立的旁路表**，不污染台账。
+- v6 新增模块全部为 IIFE，暴露 `window.*`；三页脚本末尾 `try { bootV6(); } catch{}` 装配，
+  单模块加载失败仅 `resolve(false)`，不影响已有 v4 功能。
+- `data/*.json` 与 `.github/workflows/` 一行未改，钉钉提醒与同步链路照旧。
+- 默认克制：白噪音 / 环境光 / 星幕 / 互鉴 / 快捷键等增强默认关闭，能力门控模块在不支持的设备上整块隐藏，
+  老用户首次打开外观与 v4 几乎一致，可逐步在各自面板开启。
 
 ---
 
