@@ -1,0 +1,76 @@
+name: 数据自动备份到 Release
+
+# 触发：
+#   · 每周日北京时间 03:00（UTC 周六 19:00）自动备份一次
+#   · workflow_dispatch 支持手动一键备份
+#
+# 产物：
+#   · data/*.json 会被打包成 runform-data-<日期>.tar.gz
+#   · 上传到 GitHub Release，tag 为 backup-YYYY-MM-DD
+#
+# 保留策略：只保留最近 12 个备份 tag，旧的自动删除，避免无限堆积。
+on:
+  schedule:
+    - cron: "0 19 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backup-release
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 打包数据并生成校验文件
+        run: |
+          DATE="$(date -u +%Y%m%d-%H%M%S)"
+          ARCHIVE="runform-data-${DATE}.tar.gz"
+          TAG="backup-${DATE}"
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+
+          # 生成 SHA256 校验和
+          sha256sum data/*.json > data/SHA256SUMS.txt
+
+          # 打包（不带路径前缀，解压后就是 data/）
+          tar -czf "${ARCHIVE}" data/
+
+          ls -lh "${ARCHIVE}"
+
+      - name: 创建 / 更新 Release
+        # 用 gh CLI 创建带时间戳 tag 的 Release，并上传压缩包
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCHIVE: ${{ env.ARCHIVE }}
+          TAG: ${{ env.TAG }}
+        run: |
+          # 1. 创建 tag 与 release
+          gh release create "${TAG}" "${ARCHIVE}" \
+            --title "自动备份 ${TAG}" \
+            --notes "RUN-form 数据自动备份（包含 data/*.json 与 SHA256 校验和）。触发方式：${{ github.event_name }}" \
+            --target "${GITHUB_SHA}"
+
+          echo "Release ${TAG} 创建完成"
+
+      - name: 清理旧备份（保留最近 12 个）
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 列出 backup-* tag，按时间倒序，删掉第 13 个及以后的
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags" \
+            --jq '.[].ref' \
+            | grep '^refs/tags/backup-' \
+            | sort -r \
+            | tail -n +13 \
+            | while read -r ref; do
+                tag="${ref#refs/tags/}"
+                echo "删除旧备份: ${tag}"
+                gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" --method DELETE || true
+              done
