@@ -5,7 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- 固定深色主题：告诉浏览器表单控件 / 滚动条也走深色 -->
   <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#060a16" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="星河契约" />
   <title>天文台 · 星河契约</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+  <!-- v6 主题防闪：必须在 styles.css 之前落 data-theme，否则会先闪一帧默认色 -->
+  <script>
+    (function () {
+      try {
+        var mode = "auto";
+        var value = "";
+        var raw = localStorage.getItem("runform_theme");
+        if (raw) {
+          var o = JSON.parse(raw);
+          if (o && typeof o === "object") {
+            mode = o.mode === "manual" ? "manual" : "auto";
+            value = typeof o.value === "string" ? o.value : "";
+          }
+        }
+        var t = mode === "manual" && value ? value : "";
+        if (!t) {
+          var h = new Date().getHours();
+          t = h < 5 ? "polar" : h < 8 ? "dawn" : h < 18 ? "origin" : "midnight";
+        }
+        if (t && t !== "origin") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        /* 读不到就用默认主题，绝不因此白屏 */
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -20,6 +52,8 @@
       <p class="hero-meta">
         <span id="greeting">🌌 你好</span> · <span id="today-date">—</span>
       </p>
+      <!-- v6 段位徽章：独立槽位，不碰 renderHeader() 里那两段逻辑 -->
+      <p class="hero-meta" id="rank-slot"><!-- uiRankBadge 注入 --></p>
     </header>
 
     <!-- 提醒数据降级提示（读不到 data/reminder-state.json 时出现） -->
@@ -53,6 +87,25 @@
         <span class="empty-icon" aria-hidden="true">🌑</span>
         你的星空还是一片暗区，去 <a href="manage.html">星图</a> 缔结第一颗星吧。
       </p>
+    </section>
+
+    <!-- v6 · 此刻的颜色：只在刚点亮一颗星之后出现，随手一点，不点也行 -->
+    <section class="card" id="mood-card" hidden>
+      <div class="card-head">
+        <h2 class="card-title">🎨 刚才那一下</h2>
+        <button type="button" class="mini-btn" id="mood-skip">不记了</button>
+      </div>
+      <div id="mood-slot"><!-- uiMoodPicker 注入 --></div>
+    </section>
+
+    <!-- v6 · 静坐一程（专注计时）：focus.js 按需注入后才渲染 -->
+    <section class="card" id="focus-card" hidden>
+      <div class="card-head">
+        <h2 class="card-title">🕯 静坐一程</h2>
+        <button type="button" class="mini-btn" id="focus-log-btn">看记录</button>
+      </div>
+      <div id="focus-slot"><!-- uiFocusDial 注入 --></div>
+      <div id="focus-log" hidden><!-- 近期专注记录 --></div>
     </section>
 
     <!-- 天象概览：四个天文指标 -->
@@ -123,11 +176,40 @@
     </footer>
   </main>
 
+  <!-- v6 星屑画布（z-index 60，永不吃点击） -->
+  <canvas id="fx-layer" aria-hidden="true"></canvas>
+  <!-- v6 浮层挂载点（z-index 80，toast 仍在其上） -->
+  <div id="overlay-root"></div>
+
   <!-- 全局 toast 提示容器 -->
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- ⚠️ 加载顺序固定：store.js → components.js → app.js -->
+  <!-- PWA：注册 Service Worker（异步，不阻塞页面） -->
+  <script src="register-sw.js"></script>
+  <!-- 背景图 blur-up：高清图加载完后淡出低清占位 -->
+  <script>
+    (function () {
+      const img = new Image();
+      img.src = "assets/bg-vangogh-ocean.webp";
+      if (img.complete) {
+        document.body.classList.add("bg-ready");
+      } else {
+        img.addEventListener("load", function () {
+          document.body.classList.add("bg-ready");
+        });
+      }
+    })();
+  </script>
+  <!-- ⚠️ 加载顺序固定：store.js → v6 核心模块 → components.js → app.js
+       首页只同步加载核心 5 个（约 43KB，卡在 45KB 预算内）；
+       onboarding / focus / whitenoise / shortcuts / ambient / screensaver
+       由 app.js 的 loadModule() 按需注入，老用户永远不下载引导脚本。 -->
   <script src="store.js"></script>
+  <script src="sensory.js"></script>
+  <script src="theme.js"></script>
+  <script src="rank.js"></script>
+  <script src="mood.js"></script>
+  <script src="celebrate.js"></script>
   <script src="components.js"></script>
   <script src="app.js"></script>
 </body>
