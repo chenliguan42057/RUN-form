@@ -3,11 +3,13 @@ name: 同步打卡数据
 # 触发：仓库收到 repository_dispatch 事件
 # （前端打卡 / 删除 / 清空 / 增删改计划后自动同步，或手动点击「同步到仓库」按钮）
 #
-# ⚠️ event_type 与 client_payload 的结构是 store.js dispatchSync() 的输出契约，
+# ⚠️ event_type 与 client_payload 的结构是 store.js dispatchSync() / dispatchMemos() 的输出契约，
 #   两边必须同时改，否则同步会静默失效。
+#   · sync-checkins：打卡数据（plans / checkins / tombstones）
+#   · sync-memos：   备忘录（memos / tombstones.memos），v6.1 新增，独立走 data/memos.json
 on:
   repository_dispatch:
-    types: [sync-checkins]
+    types: [sync-checkins, sync-memos]
 
 # 赋予 GITHUB_TOKEN 写权限，用于提交 data/*.json
 permissions:
@@ -31,17 +33,39 @@ jobs:
           # 取全量历史：推送冲突时要用 git pull --rebase 重试，浅克隆会 rebase 失败
           fetch-depth: 0
 
-      - name: 全量覆盖写入计划与台账
-        # client_payload.{plans,checkins} 由前端通过 repository_dispatch 传入
-        # 语义：浏览器端是唯一真源——前端推什么，远端就是什么。
-        # 因此这里【整体覆盖】data/plans.json 与 data/checkins.json，不以远端内容为基准累加，
-        # 否则前端的删除 / 清空永远同步不到仓库（append-only 只增不减）。
+      - name: 合并写入计划与台账（墓碑剔除）
+        # ────────────────────────────────────────────────────────────────
+        # v5 起改为【合并】，不再全量覆盖。原因见下：
+        #
+        # 旧版是「前端推什么、仓库就是什么」，这样删除才能同步到仓库。
+        # 但副作用很致命：仓库被【最后一个同步的设备】单方面定义。
+        #   手机攒了 200 条 → 同步 → 仓库 200 条
+        #   换台新电脑打开网页（localStorage 空的）→ 随手一动触发同步
+        #   → 仓库被覆盖成 0 条，200 条备份全没
+        # 而前端从不回拉仓库数据，所以这是纯粹的备份损失，救不回来。
+        #
+        # 现在的做法：
+        #   1) 读仓库现有内容，与前端推上来的按 id 合并（前端版本优先，因为它更新）
+        #   2) 再按 client_payload.tombstones 里的 id 精确剔除 —— 删除依然生效
+        #
+        # 兼容性：payload 里【没有】tombstones 字段时，说明是老版本前端，
+        # 退回全量覆盖，行为与改造前完全一致，不会把老页面搞坏。
+        #
+        # v6.1：同一个 job 按 event_type 分支。
+        #   sync-memos 时只处理备忘录，写 data/memos.json；
+        #   sync-checkins 时走上述 plans/checkins 合并逻辑，一字不差。
+        # ────────────────────────────────────────────────────────────────
         env:
+          EVENT_TYPE: ${{ github.event.action }}
           PLANS_JSON: ${{ toJson(github.event.client_payload.plans) }}
           CHECKINS_JSON: ${{ toJson(github.event.client_payload.checkins) }}
+          TOMBSTONES_JSON: ${{ toJson(github.event.client_payload.tombstones) }}
+          MEMOS_JSON: ${{ toJson(github.event.client_payload.memos) }}
         run: |
           python3 - <<'PY'
           import os, json
+
+          event_type = os.environ.get("EVENT_TYPE", "sync-checkins")
 
           def parse_list(env_name):
               """解析环境变量里的 JSON 数组；解析失败或类型不对时退化为空数组。"""
@@ -55,46 +79,129 @@ jobs:
               # 只保留合法的对象记录，过滤掉脏数据
               return [item for item in value if isinstance(item, dict)]
 
-          def dedupe(records):
-              """按 id 去重（无 id 的旧记录退化为 ts），保留首次出现的那条。"""
-              seen = set()
-              result = []
-              for item in records:
-                  key = item.get("id") or item.get("ts")
-                  if key in seen:
+          def read_repo_list(path):
+              """读仓库里已有的 JSON 数组；文件缺失 / 损坏一律当空数组。"""
+              try:
+                  with open(path, encoding="utf-8") as fp:
+                      value = json.load(fp)
+              except (OSError, ValueError):
+                  return []
+              if not isinstance(value, list):
+                  return []
+              return [item for item in value if isinstance(item, dict)]
+
+          def key_of(item):
+              """记录的唯一键：优先 id，老记录没有 id 就退化用 ts。"""
+              return item.get("id") or item.get("ts")
+
+          def merge(remote, incoming, dead):
+              """
+              远端 + 前端 按 id 合并，再剔除墓碑。
+              前端版本优先：同一个 id 两边都有时，用前端那份（用户可能改过名字 / 图标）。
+              """
+              merged = {}
+              order = []
+              for item in remote + incoming:      # incoming 在后 → 覆盖 remote
+                  k = key_of(item)
+                  if k is None:
                       continue
-                  seen.add(key)
-                  result.append(item)
-              return result
+                  if k not in merged:
+                      order.append(k)
+                  merged[k] = item
+              return [merged[k] for k in order if str(k) not in dead]
 
-          plans = dedupe(parse_list("PLANS_JSON"))          # 计划保持前端顺序
-          checkins = dedupe(parse_list("CHECKINS_JSON"))
-          checkins.sort(key=lambda x: x.get("ts", 0))       # 台账按时间升序，便于阅读
+          def dead_set(raw_tomb, kind):
+              """从墓碑对象里取指定 kind 的 id 集合。"""
+              if raw_tomb is None:
+                  return set()
+              value = raw_tomb.get(kind) or []
+              if not isinstance(value, list):
+                  return set()
+              return {str(x) for x in value if x}
 
-          os.makedirs("data", exist_ok=True)
+          # ---- 事件分派：v6.1 备忘录走独立分支 ----
+          if event_type == "sync-memos":
+              memos_in = parse_list("MEMOS_JSON")
+              # 墓碑：{memos: [...]}；缺字段 = 老前端 = 全量覆盖
+              try:
+                  raw_tomb = json.loads(os.environ.get("TOMBSTONES_JSON", "null"))
+              except Exception:
+                  raw_tomb = None
+              if not isinstance(raw_tomb, dict):
+                  raw_tomb = None
+              dead_memos = dead_set(raw_tomb, "memos")
+              memos = merge(read_repo_list("data/memos.json"), memos_in, dead_memos)
+              os.makedirs("data", exist_ok=True)
+              with open(os.path.join("data", "memos.json"), "w", encoding="utf-8") as f:
+                  json.dump(memos, f, ensure_ascii=False, indent=2)
+              print(f"sync-memos：合并写入 {len(memos)} 条备忘录（墓碑 {len(dead_memos)} 条）")
+          else:
+              # ---- 原 sync-checkins 逻辑（v5 起合并 + 墓碑） ----
+              raw_tomb = os.environ.get("TOMBSTONES_JSON", "null")
+              try:
+                  tomb = json.loads(raw_tomb)
+              except Exception:
+                  tomb = None
+              merge_mode = isinstance(tomb, dict)
 
-          with open(os.path.join("data", "plans.json"), "w", encoding="utf-8") as f:
-              json.dump(plans, f, ensure_ascii=False, indent=2)
+              plans_in = parse_list("PLANS_JSON")
+              checkins_in = parse_list("CHECKINS_JSON")
 
-          with open(os.path.join("data", "checkins.json"), "w", encoding="utf-8") as f:
-              json.dump(checkins, f, ensure_ascii=False, indent=2)
+              if merge_mode:
+                  dead_plans = dead_set(tomb, "plans")
+                  dead_checkins = dead_set(tomb, "checkins")
+                  plans = merge(read_repo_list("data/plans.json"), plans_in, dead_plans)
+                  checkins = merge(read_repo_list("data/checkins.json"), checkins_in, dead_checkins)
+                  mode_desc = (
+                      f"合并模式（墓碑 {len(dead_plans)} 计划 / {len(dead_checkins)} 记录）"
+                  )
+              else:
+                  # 老前端兼容路径：与改造前一字不差
+                  def dedupe(records):
+                      seen, result = set(), []
+                      for item in records:
+                          k = key_of(item)
+                          if k in seen:
+                              continue
+                          seen.add(k)
+                          result.append(item)
+                      return result
 
-          print(f"已全量覆盖写入 {len(plans)} 个计划、{len(checkins)} 条打卡记录")
+                  plans = dedupe(plans_in)
+                  checkins = dedupe(checkins_in)
+                  mode_desc = "全量覆盖模式（payload 未带 tombstones，判定为老版本前端）"
+
+              checkins.sort(key=lambda x: x.get("ts", 0))       # 台账按时间升序，便于阅读
+
+              os.makedirs("data", exist_ok=True)
+
+              with open(os.path.join("data", "plans.json"), "w", encoding="utf-8") as f:
+                  json.dump(plans, f, ensure_ascii=False, indent=2)
+
+              with open(os.path.join("data", "checkins.json"), "w", encoding="utf-8") as f:
+                  json.dump(checkins, f, ensure_ascii=False, indent=2)
+
+              print(f"{mode_desc}：写入 {len(plans)} 个计划、{len(checkins)} 条打卡记录")
           PY
 
       - name: 提交并推送
+        env:
+          EVENT_TYPE: ${{ github.event.action }}
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
-          # ⚠️⚠️ 只 add 这两个文件，【绝对不要】写成 `git add data/` 或加上
-          #   data/reminder-state.json。
-          #   reminder-state.json 由 dingtalk-reminder.yml 独占写入（提醒送达状态），
+          # ⚠️⚠️ 按事件类型只 add 对应文件，【绝对不要】写成 `git add data/`。
+          #   data/reminder-state.json 由 dingtalk-reminder.yml 独占写入（提醒送达状态），
           #   前端只读、从不上传。一旦这里把它一起提交，就会用「检出时的旧快照」
           #   覆盖掉提醒工作流刚写进去的新记录，导致：
           #     1) 已推送过的计划被判定成「没推过」，同一天重复轰炸；
           #     2) 前端热力图上的青色（提醒送达）格子凭空消失。
-          git add data/plans.json data/checkins.json
+          if [ "$EVENT_TYPE" = "sync-memos" ]; then
+            git add data/memos.json
+          else
+            git add data/plans.json data/checkins.json
+          fi
 
           # 仅在有变更时提交，避免空提交
           if git diff --cached --quiet; then
