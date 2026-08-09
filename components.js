@@ -1355,3 +1355,471 @@ function uiSkyQuote(quote, opts) {
     `</figure>`
   );
 }
+
+/* =====================================================================
+   v6 · 星河契约组件
+   仍遵守本文件契约：纯函数、内部转义、不读 localStorage、不声明 const $
+   ===================================================================== */
+
+/**
+ * B2 誓约引导的单页。
+ * @param {{icon?:string,title?:string,body?:string,index?:number,total?:number,
+ *          signed?:boolean,askSilent?:boolean,nextText?:string}} step
+ * @returns {string} HTML 字符串
+ */
+function uiOathStep(step) {
+  const s = step && typeof step === "object" ? step : {};
+  const total = uiClamp(Number(s.total) || 1, 1, 9);
+  const idx = uiClamp(Number(s.index) || 0, 0, total - 1);
+
+  let dots = "";
+  for (let i = 0; i < total; i++) {
+    dots += `<span class="oath-dot${i === idx ? " is-on" : ""}"></span>`;
+  }
+
+  const silent = s.askSilent
+    ? `<label class="oath-silent">` +
+      `<input type="checkbox" id="oath-silent" />` +
+      `静默模式：不出声、不震动，只留画面` +
+      `</label>`
+    : "";
+
+  const acts = s.signed
+    ? ""
+    : idx >= total - 1
+    ? `<div class="oath-acts">` +
+      `<button type="button" class="btn btn-ghost btn-sm" data-oath="skip">以后再说</button>` +
+      `<button type="button" class="btn btn-primary btn-sm" data-oath="sign">签下契约</button>` +
+      `</div>`
+    : `<div class="oath-acts">` +
+      `<button type="button" class="btn btn-ghost btn-sm" data-oath="skip">跳过</button>` +
+      `<button type="button" class="btn btn-primary btn-sm" data-oath="next">` +
+      `${escapeHtml(s.nextText || "继续")}</button>` +
+      `</div>`;
+
+  return (
+    `<span class="oath-icon" aria-hidden="true">${escapeHtml(s.icon || "✦")}</span>` +
+    `<h2 class="oath-title">${escapeHtml(s.title || "")}</h2>` +
+    `<p class="oath-body">${escapeHtml(s.body || "")}</p>` +
+    `<div class="oath-dots" aria-hidden="true">${dots}</div>` +
+    silent +
+    acts
+  );
+}
+
+/**
+ * C1 段位徽章（页头小胶囊）。
+ * @param {{name?:string,icon?:string,score?:number,hidden?:boolean}} rank
+ * @returns {string} HTML 字符串；rank 为空时返回空串（页头就当没这块）
+ */
+function uiRankBadge(rank) {
+  if (!rank || typeof rank !== "object") return "";
+  const name = String(rank.name || "").trim();
+  if (!name) return "";
+  const cls = rank.hidden ? " is-hidden-tier" : "";
+  const score = Number(rank.score) || 0;
+  return (
+    `<button type="button" class="rank-badge${cls}" data-act="rank-detail" ` +
+    `title="契约值 ${score}" aria-label="当前段位 ${escapeHtml(name)}，契约值 ${score}">` +
+    `<span class="rank-badge-icon" aria-hidden="true">${escapeHtml(rank.icon || "✦")}</span>` +
+    `<span class="rank-badge-name">${escapeHtml(name)}</span>` +
+    `<span class="rank-badge-score">${score}</span>` +
+    `</button>`
+  );
+}
+
+/**
+ * C1 段位卡（星历页整块）。
+ * @param {Object} prog Rank.rankProgress() 的返回
+ * @param {Array} table Rank.visibleTable() 的返回
+ * @returns {string} HTML 字符串
+ */
+function uiRankCard(prog, table) {
+  const p = prog && typeof prog === "object" ? prog : {};
+  const cur = p.current || { name: "初见微光", icon: "✦", score: 0 };
+  const pct = uiClamp(Number(p.percent) || 0, 0, 100);
+
+  let next = "";
+  if (p.next) {
+    next =
+      `<p class="rank-next">距 <b>${escapeHtml(p.next.name)}</b> 还差 ` +
+      `${Number(p.remain) || 0} 点契约值` +
+      (p.blockedBy ? `（${escapeHtml(p.blockedBy)}）` : "") +
+      `</p>`;
+  } else {
+    next = `<p class="rank-next">已至顶端。剩下的事，只是继续亮着。</p>`;
+  }
+
+  let rows = "";
+  const list = Array.isArray(table) ? table : [];
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    const isCur = t.key === cur.key;
+    const locked = !isCur && Number(t.min) > (Number(cur.score) || 0);
+    rows +=
+      `<div class="rank-row${isCur ? " is-current" : ""}${locked ? " is-locked" : ""}">` +
+      `<span aria-hidden="true">${escapeHtml(t.icon || "✦")}</span>` +
+      `<span>${escapeHtml(t.name || "")}</span>` +
+      `<span class="rank-row-min">${Number(t.min) || 0}</span>` +
+      `</div>`;
+  }
+
+  return (
+    `<div class="rank-card-head">` +
+    `<span class="rank-card-icon" aria-hidden="true">${escapeHtml(cur.icon || "✦")}</span>` +
+    `<div>` +
+    `<h3 class="rank-card-name">${escapeHtml(cur.name || "")}</h3>` +
+    `<p class="rank-card-tag">${escapeHtml(cur.tagline || "")} · 契约值 ${Number(cur.score) || 0}</p>` +
+    `</div></div>` +
+    `<div class="rank-bar"><div class="rank-bar-fill" style="width:${pct}%"></div></div>` +
+    next +
+    `<div class="rank-list">${rows}</div>`
+  );
+}
+
+/**
+ * B3 专注表盘。
+ * @param {{minutes?:number,left?:number,percent?:number,phase?:string,
+ *          planName?:string,options?:number[]}} st
+ * @returns {string} HTML 字符串
+ */
+function uiFocusDial(st) {
+  const s = st && typeof st === "object" ? st : {};
+  const R = 82;
+  const C = 2 * Math.PI * R;
+  const pct = uiClamp(Number(s.percent) || 0, 0, 100);
+  const offset = C * (1 - pct / 100);
+
+  const left = Math.max(0, Math.floor(Number(s.left) || 0));
+  const mm = Math.floor(left / 60);
+  const ss = left % 60;
+  const clock = (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+
+  const phase = String(s.phase || "idle");
+  const phaseText =
+    phase === "running"
+      ? "专注中"
+      : phase === "paused"
+      ? "已暂停"
+      : phase === "done"
+      ? "这一程走完了"
+      : "还没开始";
+
+  const opts = Array.isArray(s.options) && s.options.length ? s.options : [15, 25, 45, 60];
+  let mins = "";
+  if (phase === "idle" || phase === "done") {
+    for (let i = 0; i < opts.length; i++) {
+      const v = Number(opts[i]) || 25;
+      mins +=
+        `<button type="button" class="focus-min-btn${v === Number(s.minutes) ? " is-on" : ""}" ` +
+        `data-focus-min="${v}">${v} 分</button>`;
+    }
+    mins = `<div class="focus-mins">${mins}</div>`;
+  }
+
+  let acts = "";
+  if (phase === "running") {
+    acts =
+      `<button type="button" class="btn btn-ghost btn-sm" data-focus="pause">暂停</button>` +
+      `<button type="button" class="btn btn-ghost btn-sm" data-focus="abort">放弃</button>`;
+  } else if (phase === "paused") {
+    acts =
+      `<button type="button" class="btn btn-primary btn-sm" data-focus="resume">继续</button>` +
+      `<button type="button" class="btn btn-ghost btn-sm" data-focus="abort">放弃</button>`;
+  } else if (phase === "done") {
+    acts =
+      `<button type="button" class="btn btn-primary btn-sm" data-focus="convert">点亮这颗星</button>` +
+      `<button type="button" class="btn btn-ghost btn-sm" data-focus="reset">再来一程</button>`;
+  } else {
+    acts = `<button type="button" class="btn btn-primary btn-sm" data-focus="start">开始专注</button>`;
+  }
+
+  const plan = s.planName
+    ? `<p class="focus-plan">为「${escapeHtml(s.planName)}」而坐</p>`
+    : `<p class="focus-plan">不为哪颗星，只为坐得住</p>`;
+
+  return (
+    `<div class="focus-dial">` +
+    `<div class="focus-ring">` +
+    `<svg viewBox="0 0 190 190" aria-hidden="true">` +
+    `<circle class="focus-ring-bg" cx="95" cy="95" r="${R}"></circle>` +
+    `<circle class="focus-ring-fg" cx="95" cy="95" r="${R}" ` +
+    `stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"></circle>` +
+    `</svg>` +
+    `<div class="focus-center">` +
+    `<span class="focus-time">${clock}</span>` +
+    `<span class="focus-state">${escapeHtml(phaseText)}</span>` +
+    `</div></div>` +
+    plan +
+    mins +
+    `<div class="focus-acts">${acts}</div>` +
+    `</div>`
+  );
+}
+
+/**
+ * B4 海报预览块。
+ * @param {{url?:string,building?:boolean,hideDate?:boolean}} opts
+ * @returns {string} HTML 字符串
+ */
+function uiPosterPreview(opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const img = o.url
+    ? `<img class="poster-thumb" src="${o.url}" alt="星河契约海报预览" />`
+    : `<div class="poster-thumb"></div>`;
+  const tip = o.building
+    ? "正在描星……"
+    : o.url
+    ? "长按图片可直接保存；点「下载」拿 2400×3600 原图。"
+    : "点一下「生成海报」，把这段日子铺成一张图。";
+
+  return (
+    `<div class="poster-prev">` +
+    img +
+    `<div class="poster-acts">` +
+    `<button type="button" class="btn btn-primary btn-sm" data-poster="build">生成海报</button>` +
+    (o.url
+      ? `<button type="button" class="btn btn-ghost btn-sm" data-poster="save">下载原图</button>`
+      : "") +
+    `</div>` +
+    `<label class="oath-silent"><input type="checkbox" id="poster-hide-date"${
+      o.hideDate ? " checked" : ""
+    } />海报里不显示日期</label>` +
+    `<p class="poster-tip">${escapeHtml(tip)}</p>` +
+    `</div>`
+  );
+}
+
+/**
+ * C2 四季主题切换。
+ * @param {{mode?:string,value?:string,resolved?:string,list?:Array}} opts
+ * @returns {string} HTML 字符串
+ */
+function uiThemeSwitch(opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const list = Array.isArray(o.list) ? o.list : [];
+  const mode = o.mode === "manual" ? "manual" : "auto";
+  const cur = String(o.value || o.resolved || "origin");
+
+  let chips =
+    `<button type="button" class="theme-chip${mode === "auto" ? " is-on" : ""}" ` +
+    `data-theme-mode="auto">🕰 跟随时辰</button>`;
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    const on = mode === "manual" && t.key === cur;
+    chips +=
+      `<button type="button" class="theme-chip${on ? " is-on" : ""}" data-theme-set="${escapeHtml(
+        t.key
+      )}">` +
+      `<span class="theme-dot" style="background:${escapeHtml(t.dot || "#f2c14e")}"></span>` +
+      `${escapeHtml(t.name || t.key)}</button>`;
+  }
+
+  const note =
+    mode === "auto"
+      ? `现在是「${escapeHtml(o.resolvedName || o.resolved || "原初")}」。深夜、清晨、白日、黄昏各有各的天色。`
+      : `锁定在「${escapeHtml(o.resolvedName || cur)}」，不再随时间变。`;
+
+  return (
+    `<div class="theme-switch">` +
+    `<div class="theme-row">${chips}</div>` +
+    `<p class="theme-note">${note}</p>` +
+    `</div>`
+  );
+}
+
+/**
+ * C3 情绪选择器。
+ * @param {{moods?:Array,selected?:string,note?:string,max?:number}} opts
+ * @returns {string} HTML 字符串
+ */
+function uiMoodPicker(opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const list = Array.isArray(o.moods) ? o.moods : [];
+  const sel = String(o.selected || "");
+  const max = Number(o.max) || 60;
+  const note = String(o.note || "");
+
+  let chips = "";
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i];
+    const on = m.key === sel;
+    const col = `hsl(${Number(m.hue) || 45} 80% 68%)`;
+    chips +=
+      `<button type="button" class="mood-chip${on ? " is-on" : ""}" ` +
+      `data-mood="${escapeHtml(m.key)}" style="color:${on ? col : ""}">` +
+      `<span aria-hidden="true">${escapeHtml(m.icon || "•")}</span>` +
+      `${escapeHtml(m.name || m.key)}</button>`;
+  }
+
+  return (
+    `<div class="mood-picker">` +
+    `<div class="mood-row">${chips}</div>` +
+    `<textarea class="mood-note" id="mood-note" rows="2" maxlength="${max}" ` +
+    `placeholder="想说一句就说一句，不说也行">${escapeHtml(note)}</textarea>` +
+    `<div class="mood-count"><span id="mood-count">${note.length}</span>/${max}</div>` +
+    `</div>`
+  );
+}
+
+/**
+ * C3 情绪光谱条。
+ * @param {{items?:Array,total?:number}} spec MoodStore.spectrum() 的返回
+ * @returns {string} HTML 字符串
+ */
+function uiSpectrum(spec) {
+  const s = spec && typeof spec === "object" ? spec : {};
+  const items = Array.isArray(s.items) ? s.items : [];
+  const total = Number(s.total) || 0;
+  if (!total) {
+    return `<p class="review-empty">还没有记过心情。点亮的时候顺手选一个就好。</p>`;
+  }
+
+  let segs = "";
+  let keys = "";
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const n = Number(it.count) || 0;
+    if (n <= 0) continue;
+    const col = `hsl(${Number(it.hue) || 45} 78% 62%)`;
+    segs += `<span class="spectrum-seg" style="flex:${n};background:${col}"></span>`;
+    keys +=
+      `<span class="spectrum-key">` +
+      `<i class="spectrum-swatch" style="background:${col}"></i>` +
+      `${escapeHtml(it.name || it.key)} ${n}</span>`;
+  }
+
+  return `<div class="spectrum-bar">${segs}</div><div class="spectrum-legend">${keys}</div>`;
+}
+
+/**
+ * C5 阶段回望块。
+ * @param {Object} data Review.renderReview() 的返回
+ * @param {string} scope 当前 tab
+ * @returns {string} HTML 字符串
+ */
+function uiReviewBlock(data, scope) {
+  const d = data && typeof data === "object" ? data : {};
+  const cur = String(scope || d.scope || "week");
+  const tabs = [
+    { key: "week", name: "这一周" },
+    { key: "month", name: "这一月" },
+    { key: "year", name: "这一年" }
+  ];
+
+  let tabHtml = "";
+  for (let i = 0; i < tabs.length; i++) {
+    tabHtml +=
+      `<button type="button" class="review-tab${tabs[i].key === cur ? " is-on" : ""}" ` +
+      `data-review="${tabs[i].key}">${tabs[i].name}</button>`;
+  }
+
+  const head =
+    `<div class="review-head">` +
+    `<div><h3 class="review-title">${escapeHtml(d.title || "回望")}</h3>` +
+    `<p class="review-sub">${escapeHtml(d.subtitle || "")}</p></div>` +
+    `<div class="review-tabs">${tabHtml}</div>` +
+    `</div>`;
+
+  if (d.empty) {
+    return (
+      head +
+      `<p class="review-empty">这一段还是空的。空着也没关系，明天再来填。</p>`
+    );
+  }
+
+  let secs = "";
+  const list = Array.isArray(d.sections) ? d.sections : [];
+  for (let i = 0; i < list.length; i++) {
+    const sec = list[i];
+    if (!sec || !sec.body) continue;
+    secs +=
+      `<div class="review-sec">` +
+      `<span class="review-sec-title">${escapeHtml(sec.title || "")}</span>` +
+      `<p class="review-sec-body">${escapeHtml(sec.body)}</p>` +
+      `</div>`;
+  }
+
+  const poem = d.poem ? `<p class="review-poem">${escapeHtml(d.poem)}</p>` : "";
+  return head + secs + poem;
+}
+
+/**
+ * D2 白噪音三选一。
+ * @param {{scenes?:Array,current?:string,volume?:number}} opts
+ * @returns {string} HTML 字符串
+ */
+function uiWhiteNoise(opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const list = Array.isArray(o.scenes) ? o.scenes : [];
+  const cur = String(o.current || "");
+  const vol = uiClamp(Number(o.volume) * 100 || 70, 0, 100);
+
+  let cards = "";
+  let desc = "";
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    const on = s.key === cur;
+    if (on) desc = s.desc || "";
+    cards +=
+      `<button type="button" class="wn-card${on ? " is-on" : ""}" data-wn="${escapeHtml(s.key)}">` +
+      `<span class="wn-icon" aria-hidden="true">${escapeHtml(s.icon || "♪")}</span>` +
+      `<span>${escapeHtml(s.name || s.key)}</span>` +
+      `</button>`;
+  }
+
+  return (
+    `<div class="wn-grid">${cards}</div>` +
+    `<p class="wn-desc">${escapeHtml(desc || "选一个，让房间里有点别的声音。再点一次就关。")}</p>` +
+    `<input class="wn-vol" type="range" id="wn-vol" min="0" max="100" value="${vol}" ` +
+    `aria-label="白噪音音量" />`
+  );
+}
+
+/**
+ * D3 星图互鉴。
+ * @param {{code?:string,result?:Object,error?:string}} opts
+ * @returns {string} HTML 字符串
+ */
+function uiFriendCompare(opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const mine =
+    `<code class="fm-code" id="fm-my-code">${escapeHtml(o.code || "————")}</code>` +
+    `<div class="poster-acts" style="margin-top:10px">` +
+    `<button type="button" class="btn btn-ghost btn-sm" data-fm="copy">复制我的短码</button>` +
+    `</div>` +
+    `<p class="poster-tip">短码里只有几个数字，没有你的计划名，也没有任何日期明细。</p>`;
+
+  const input =
+    `<input class="fm-input" id="fm-input" placeholder="粘贴朋友的短码" ` +
+    `autocomplete="off" spellcheck="false" />` +
+    `<div class="poster-acts" style="margin-top:10px">` +
+    `<button type="button" class="btn btn-primary btn-sm" data-fm="read">对照看看</button>` +
+    `</div>`;
+
+  let body = "";
+  if (o.error) {
+    body = `<p class="review-empty">${escapeHtml(o.error)}</p>`;
+  } else if (o.result && o.result.ok) {
+    const r = o.result;
+    let rows = "";
+    for (let i = 0; i < r.rows.length; i++) {
+      const row = r.rows[i];
+      rows +=
+        `<div class="fm-row">` +
+        `<div class="fm-row-head"><span>${escapeHtml(row.label)}</span>` +
+        `<span>我 ${row.mine}${escapeHtml(row.unit)} · 他 ${row.his}${escapeHtml(row.unit)}</span></div>` +
+        `<div class="fm-bars">` +
+        `<div class="fm-bar mine"><i style="width:${row.minePct}%"></i></div>` +
+        `<div class="fm-bar his"><i style="width:${row.hisPct}%"></i></div>` +
+        `</div></div>`;
+    }
+    body =
+      `<div class="fm-rows">${rows}</div>` +
+      `<p class="fm-word">对方段位：${escapeHtml(r.his.rankName || "未知")}。${escapeHtml(
+        r.word || ""
+      )}</p>`;
+  }
+
+  return mine + `<div style="margin-top:16px">${input}${body}</div>`;
+}
