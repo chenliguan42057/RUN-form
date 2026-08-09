@@ -1,0 +1,9 @@
+# QA 临时落盘（renderHeader 逐字节对比等），不入库
+.qa-tmp/
+
+# 依赖与构建产物（本项目为零构建静态站，暂无）
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
