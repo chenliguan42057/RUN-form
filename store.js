@@ -33,10 +33,61 @@ const CHECKIN_KEY = "runform_checkins";
 const TOKEN_KEY = "runform_pat";
 /** UI 偏好设置在 localStorage 中的键名（v3 新增） */
 const PREFS_KEY = "runform_prefs";
+
+/**
+ * 墓碑表的 localStorage 键。
+ * 记录「本机删掉过哪些 id」，用于让 sync.yml 从合并模式里精确剔除这些记录。
+ * 结构：{ plans: { [id]: 删除时间戳 }, checkins: { [id]: 删除时间戳 } }
+ */
+const TOMBSTONE_KEY = "runform_tombstones";
+
+/**
+ * 墓碑保留天数。超过就清掉，避免这张表无限膨胀。
+ * 180 天足够覆盖「某台设备半年没开机」的极端情况；
+ * 真有设备闲置超过半年才上线，它那份早已删除的旧记录会被重新合并回来——
+ * 这是墓碑方案的固有代价，用 TTL 换存储可控。
+ */
+const TOMBSTONE_TTL_DAYS = 180;
 /** 提醒状态的本地缓存键（fetch 失败时降级读它，v3 新增） */
 const REMINDER_CACHE_KEY = "runform_reminder_cache";
+
+/* ---------------------------------------------------------------------
+   v6「感官层」localStorage 键（全部本地私有）
+   ⚠️ 红线：以下所有键的数据【绝不进 dispatchSync 的 client_payload】。
+      同步契约恒为 {plans, checkins, tombstones}，checkin 恒七字段。
+      这些键只负责「这台设备上的体验」，换设备重来一遍是可接受的。
+   ------------------------------------------------------------------- */
+
+/** 星河契约签署状态：{signed, id:"#A1B2", date, ts, oathVer} */
+const CONTRACT_KEY = "runform_contract";
+/** 静默总闸：**裸字符串** "1" / "0"，供 <head> 内联脚本零解析读取 */
+const SILENT_KEY = "runform_silent";
+/** 主题：{mode:"auto"|"manual", value} */
+const THEME_KEY = "runform_theme";
+/** 进行中的专注会话：{startTs, minutes, planId, planName, pausedMs, pauseTs} */
+const FOCUS_KEY = "runform_focus";
+/** 专注历史（环形数组，上限 FOCUS_LOG_LIMIT 条） */
+const FOCUS_LOG_KEY = "runform_focus_log";
+/** 专注历史保留上限 */
+const FOCUS_LOG_LIMIT = 200;
+/** 情绪旁路表：{[checkinId]: {e, m, note, ts}}，checkin 对象结构一字不改 */
+const MOODMAP_KEY = "runform_moodmap";
+/** 已庆祝过的里程碑天数数组，用于全屏星爆去重 */
+const CELEBRATED_KEY = "runform_celebrated";
+/** 星轨呼吸背景：{enabled:false, auto:true} */
+const AMBIENT_KEY = "runform_ambient";
+/** 快捷键 / 手势偏好 */
+const SHORTCUT_KEY = "runform_shortcut";
+/** 屏保偏好 */
+const SCREENSAVER_KEY = "runform_screensaver";
 /** 提醒状态文件的【同源相对路径】——前端只读，绝不写 */
 const REMINDER_STATE_URL = "data/reminder-state.json";
+/** 备忘录列表在 localStorage 中的键名（v6.1 新增，一次性临时事项提醒） */
+const MEMO_KEY = "runform_memos";
+/** 备忘录墓碑表：{ [id]: 删除时间戳 }，用于同步仓库 data/memos.json 时精确剔除 */
+const MEMO_TOMBSTONE_KEY = "runform_memo_tombstones";
+/** 站内提示去重键：{ "memoId|YYYY-MM-DD": 1 }，当天已弹过的备忘录不重复弹 */
+const MEMO_NOTIFIED_KEY = "runform_memo_notified";
 /** GitHub repository_dispatch 接口地址 */
 const REPO_DISPATCH_URL =
   "https://api.github.com/repos/chenliguan42057/RUN-form/dispatches";
@@ -137,6 +188,12 @@ const DEFAULT_PREFS = {
   heatmapSource: "all",
   /** 手动关闭动效（等同系统的 prefers-reduced-motion: reduce） */
   reduceMotion: false,
+  /** v6：专注计时默认时长（分钟） */
+  focusMinutes: 25,
+  /** v6：年度海报是否隐去精确日期（默认隐去，只留「星数 + 段位」） */
+  posterHideDate: true,
+  /** v6：星轨呼吸背景默认关（P2 性能红线，能力门控见 ambient.js） */
+  ambient: false,
 };
 
 // ============================ 内部状态 ============================
@@ -145,6 +202,8 @@ const DEFAULT_PREFS = {
 let toastTimer = null;
 /** 自动同步防抖定时器句柄 */
 let autoSyncTimer = null;
+/** 备忘录自动同步防抖定时器句柄（v6.1 新增） */
+let memoAutoSyncTimer = null;
 /** 提醒状态原始对象：{ "YYYY-MM-DD|planId": epochSeconds } */
 let reminderSentRaw = {};
 /** 提醒状态倒排索引：dateKey → Set<planId> */
@@ -390,29 +449,67 @@ function randomQuote(seed) {
 /** 大语录库的相对路径。GitHub Pages 与本地静态服务器都能直接取到。 */
 const MINDSET_QUOTES_URL = "data/quotes.json";
 
-/** 进程内缓存，避免每次渲染都重复 fetch 同一份 JSON。 */
+/**
+ * 进程内缓存，只在【真正加载成功】时写入。
+ * ⚠️ 兜底的梵高语录绝对不能写进这里 —— 一旦写了，
+ *    mindsetQuotesReady() 就会误判成「大库已就绪」，署名又会错回去。
+ */
 let _mindsetQuotes = null;
+
+/** 上次加载失败的时间戳，用于失败冷却，避免每次渲染都打一发必挂的请求。 */
+let _mindsetFailedAt = 0;
+
+/** 加载失败后的重试冷却（毫秒）。冷却期内直接返回兜底，不发请求。 */
+const MINDSET_RETRY_MS = 60000;
+
+/**
+ * 大语录库是否已真正加载成功。
+ *
+ * 存在的唯一理由：loadMindsetQuotes() 失败时会回落到梵高语录，
+ * 但它的返回值类型和成功时一模一样（都是非空字符串数组），调用方根本分不出来。
+ * 「星语」卡片要靠它决定署名 ——
+ *   就绪 → 署「RUN-form 心法」；没就绪 → 老老实实署「梵高」。
+ * 不判断的话，离线时会把梵高的话安在自己头上。
+ * @returns {boolean} true = 拿到的是 data/quotes.json 真实大库
+ */
+function mindsetQuotesReady() {
+  return Array.isArray(_mindsetQuotes) && _mindsetQuotes.length > 0;
+}
 
 /**
  * 加载 data/quotes.json 大语录库（带缓存与兜底）。
  * 网络失败 / 文件损坏 / 空数组时回落到 VAN_GOGH_QUOTES，保证首页永远有话可说。
+ *
+ * ⚠️ 回落【不】写进 _mindsetQuotes，因此：
+ *    1) 调用方可以用 mindsetQuotesReady() 区分「真库」和「兜底」，署名不会张冠李戴；
+ *    2) 网络恢复后下一次调用会自动重试，不会一直卡在梵高小库直到刷新页面。
+ *    代价是失败时每次调用都想重试一发，所以加了 MINDSET_RETRY_MS 冷却。
  * @returns {Promise<string[]>} 语录数组，永不为空
  */
 async function loadMindsetQuotes() {
   if (_mindsetQuotes) return _mindsetQuotes;
+
+  // 刚失败过，冷却期内不再打网络，直接给兜底
+  if (_mindsetFailedAt && Date.now() - _mindsetFailedAt < MINDSET_RETRY_MS) {
+    return VAN_GOGH_QUOTES;
+  }
+
   try {
     const r = await fetch(MINDSET_QUOTES_URL, { cache: "no-cache" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const arr = await r.json();
     if (Array.isArray(arr) && arr.length) {
       _mindsetQuotes = arr;
+      _mindsetFailedAt = 0;
       return arr;
     }
+    throw new Error("quotes.json 不是非空数组");
   } catch (e) {
-    console.warn("[RUN-form] quotes.json 加载失败，回落到梵高语录：", e);
+    console.warn("[RUN-form] quotes.json 加载失败，本次回落到梵高语录：", e);
   }
-  _mindsetQuotes = VAN_GOGH_QUOTES;
-  return _mindsetQuotes;
+
+  _mindsetFailedAt = Date.now();
+  return VAN_GOGH_QUOTES;
 }
 
 /**
@@ -521,6 +618,12 @@ function loadPrefs() {
   const source = ["all", "auto", "manual"].indexOf(src.heatmapSource) >= 0
     ? src.heatmapSource
     : DEFAULT_PREFS.heatmapSource;
+  // v6：专注时长白名单化，避免手改 localStorage 造出 0 分钟 / 999 分钟的会话
+  const rawMin = Number(src.focusMinutes);
+  const focusMinutes =
+    Number.isFinite(rawMin) && rawMin >= 5 && rawMin <= 120
+      ? Math.round(rawMin)
+      : DEFAULT_PREFS.focusMinutes;
   return {
     showManualCheckin:
       src.showManualCheckin === undefined
@@ -528,6 +631,12 @@ function loadPrefs() {
         : src.showManualCheckin !== false,
     heatmapSource: source,
     reduceMotion: src.reduceMotion === true,
+    focusMinutes,
+    posterHideDate:
+      src.posterHideDate === undefined
+        ? DEFAULT_PREFS.posterHideDate
+        : src.posterHideDate !== false,
+    ambient: src.ambient === true,
   };
 }
 
@@ -649,6 +758,8 @@ function updatePlan(id, patch) {
  */
 function deletePlan(id) {
   savePlans(loadPlans().filter((p) => p.id !== id));
+  // 立墓碑，否则合并同步会把这个计划从仓库里重新捞回来
+  addTombstones("plans", id);
 }
 
 /**
@@ -776,6 +887,8 @@ function addCheckin(planId, planName) {
  */
 function deleteCheckin(id) {
   saveCheckins(loadCheckins().filter((item) => item.id !== id));
+  // 立墓碑，否则合并同步会把这条记录从仓库里重新捞回来
+  addTombstones("checkins", id);
 }
 
 /**
@@ -783,12 +896,103 @@ function deleteCheckin(id) {
  * @returns {void}
  */
 function clearAll() {
+  // ⚠️ 先给现有记录立墓碑，再删。顺序反了就拿不到 id 了。
+  const ids = loadCheckins().map((item) => item.id).filter(Boolean);
   try {
     localStorage.removeItem(CHECKIN_KEY);
   } catch (e) {
     console.error("清空台账失败：", e);
     showToast("浏览器存储不可用，清空失败", "error");
+    return;
   }
+  addTombstones("checkins", ids);
+}
+
+// ============================ 墓碑表（多设备删除同步） ============================
+
+/*
+ * 为什么需要墓碑？
+ *
+ * 旧版 sync.yml 是【全量覆盖】：前端推什么，仓库就是什么。
+ * 这么设计是为了让「删除」能同步到仓库 —— 只增不减的话，删掉的记录永远赖在仓库里。
+ *
+ * 但全量覆盖有个要命的副作用：仓库会被【最后一个同步的设备】单方面定义。
+ *   · 手机上攒了 200 条打卡 → 同步 → 仓库 200 条
+ *   · 换台新电脑打开网页，localStorage 是空的，随手点了一下触发同步
+ *   · 仓库瞬间被覆盖成 0 条，200 条备份全没了
+ * 前端又从不回拉仓库数据（localStorage 是唯一真源），所以这属于纯粹的备份损失。
+ *
+ * 墓碑方案同时满足两个需求：
+ *   · 合并：仓库侧按 id 把新旧记录并起来，过期设备不会抹掉别人的数据
+ *   · 删除仍然生效：删除动作单独记一条墓碑，合并后再按墓碑精确剔除
+ */
+
+/**
+ * 读取墓碑表，顺带清掉过期的。
+ * 任何异常都退化成空表 —— 墓碑丢了最多是「删掉的记录被合并回来」，
+ * 比抛异常打断整个同步流程要好。
+ * @returns {{plans:Object, checkins:Object}} 两类墓碑，值为删除时间戳
+ */
+function loadTombstones() {
+  const empty = { plans: {}, checkins: {} };
+  let raw;
+  try {
+    raw = JSON.parse(safeGetItem(TOMBSTONE_KEY) || "null");
+  } catch (e) {
+    return empty;
+  }
+  if (!raw || typeof raw !== "object") return empty;
+
+  const cutoff = Date.now() - TOMBSTONE_TTL_DAYS * DAY_MS;
+  const out = { plans: {}, checkins: {} };
+  let pruned = 0;
+
+  for (const kind of ["plans", "checkins"]) {
+    const bucket = raw[kind];
+    if (!bucket || typeof bucket !== "object") continue;
+    for (const id of Object.keys(bucket)) {
+      const ts = Number(bucket[id]);
+      if (!Number.isFinite(ts)) continue;
+      if (ts < cutoff) {
+        pruned++;
+        continue;
+      }
+      out[kind][id] = ts;
+    }
+  }
+
+  // 有过期项就顺手写回，避免每次读都要重新过滤一遍
+  if (pruned > 0) safeSetItem(TOMBSTONE_KEY, JSON.stringify(out));
+  return out;
+}
+
+/**
+ * 给一批 id 立墓碑。
+ * @param {"plans"|"checkins"} kind 记录类型
+ * @param {string[]|string} ids 一个或多个 id
+ * @returns {void}
+ */
+function addTombstones(kind, ids) {
+  if (kind !== "plans" && kind !== "checkins") return;
+  const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String);
+  if (!list.length) return;
+
+  const tomb = loadTombstones();
+  const now = Date.now();
+  for (const id of list) tomb[kind][id] = now;
+  safeSetItem(TOMBSTONE_KEY, JSON.stringify(tomb));
+}
+
+/**
+ * 把墓碑表拍平成 sync.yml 要的形状：{ plans: [...id], checkins: [...id] }。
+ * @returns {{plans:string[], checkins:string[]}}
+ */
+function tombstoneIds() {
+  const tomb = loadTombstones();
+  return {
+    plans: Object.keys(tomb.plans),
+    checkins: Object.keys(tomb.checkins),
+  };
 }
 
 // ============================ v3 计划调度计算 ============================
@@ -1167,14 +1371,24 @@ async function addMindsetQuotes(text, token) {
     return 0;
   }
 
-  // 与现有库比对去重。loadMindsetQuotes() 失败时会回落到 VAN_GOGH_QUOTES，
-  // 那种情况下这里的去重基准不准，但工作流侧还会以真实文件再去重一次，不会写进重复条目。
+  // 与现有库比对去重。
+  // ⚠️ loadMindsetQuotes() 失败时回落到 VAN_GOGH_QUOTES（只有十几条），
+  //    拿它当去重基准是错的：用户提交的新句子会被误判成「已存在」而被拦下，
+  //    页面还会弹「这些句子语录库里已经有了」，看着像 bug。
+  //    所以库没真正就绪时【跳过本地去重】，直接交给 add-quotes.yml
+  //    用仓库里的真实文件再去一次重 —— 那一层才是最终防线，不会写进重复条目。
   const existing = await loadMindsetQuotes();
-  const known = new Set(existing.map((q) => String(q).trim()));
-  const fresh = candidates.filter((s) => !known.has(s));
-  if (!fresh.length) {
-    showToast("这些句子语录库里已经有了", "info");
-    return 0;
+  let fresh;
+  if (mindsetQuotesReady()) {
+    const known = new Set(existing.map((q) => String(q).trim()));
+    fresh = candidates.filter((s) => !known.has(s));
+    if (!fresh.length) {
+      showToast("这些句子语录库里已经有了", "info");
+      return 0;
+    }
+  } else {
+    fresh = candidates.slice();
+    console.warn("[RUN-form] 语录库未就绪，跳过本地去重，改由 add-quotes.yml 兜底");
   }
 
   try {
@@ -1214,7 +1428,9 @@ async function addMindsetQuotes(text, token) {
 
   // 乐观更新进程内缓存：本次会话内（不刷新页面）就能选到新句；
   // ⚠️ 只是内存缓存，刷新后仍以仓库文件为准 —— 仓库侧要等 Actions 提交 + Pages 重新发布（约 1 分钟）。
-  if (Array.isArray(_mindsetQuotes)) _mindsetQuotes = _mindsetQuotes.concat(fresh);
+  // ⚠️ 只有真库就绪时才追加。库没就绪时 _mindsetQuotes 为 null，
+  //    往里塞会让 mindsetQuotesReady() 变 true，署名又要出错。
+  if (mindsetQuotesReady()) _mindsetQuotes = _mindsetQuotes.concat(fresh);
 
   showToast(`已提交 ${fresh.length} 条，约 1 分钟后生效`, "success");
   return fresh.length;
@@ -1631,7 +1847,13 @@ function resolveToken() {
 /**
  * 纯粹的 repository_dispatch 调用：只发请求，不碰任何 UI。
  * 失败时抛出【可直接展示给用户】的错误信息，由调用方决定提示方式。
- * ⚠️ event_type 与 client_payload 结构是 sync.yml 的输入契约，禁止改动。
+ *
+ * ⚠️ event_type 与 client_payload 结构是 sync.yml 的输入契约，禁止单边改动。
+ *    payload 里的 tombstones 是 v5 新增字段：
+ *      · 带这个字段 → sync.yml 走【合并】模式（保住其它设备的数据）
+ *      · 不带       → sync.yml 退回【全量覆盖】（老前端的兼容路径）
+ *    所以这里必须始终带上，哪怕是空数组。
+ *
  * @param {Array<Object>} plans 计划数组
  * @param {Array<Object>} checkins 台账数组
  * @param {string} token GitHub Personal Access Token
@@ -1648,7 +1870,7 @@ async function dispatchSync(plans, checkins, token) {
     },
     body: JSON.stringify({
       event_type: "sync-checkins",
-      client_payload: { plans, checkins },
+      client_payload: { plans, checkins, tombstones: tombstoneIds() },
     }),
   });
 
@@ -1713,6 +1935,14 @@ async function syncToRepo() {
 
   try {
     await dispatchSync(loadPlans(), loadCheckins(), token);
+    // v6.1：备忘录走独立事件 sync-memos（不混入 plans/checkins 契约），一并触发
+    try {
+      await dispatchMemos(loadMemos(), token);
+    } catch (memoErr) {
+      console.error("备忘录同步失败：", memoErr);
+      showToast(memoErr.message, "error");
+      return;
+    }
     showToast("已触发同步，仓库稍后更新", "success");
   } catch (err) {
     console.error("同步失败：", err);
@@ -2088,4 +2318,263 @@ function milestoneCheer() {
     text: MILESTONE_CHEERS[top.days] || `连续 ${top.days} 天——「${top.name}」已达成。`,
     milestone: top,
   };
+}
+
+/* =====================================================================
+   v6.1「备忘录」数据层（一次性临时事项提醒）
+   ---------------------------------------------------------------------
+   数据结构：{id, title, due:"YYYY-MM-DD HH:MM", done:false, createdAt}
+   · 本机 localStorage（MEMO_KEY）是唯一真源；
+   · 同步到仓库走独立事件 sync-memos（store.js 新增 dispatchMemos），
+     不碰 dispatchSync 的 {plans, checkins, tombstones} 契约；
+   · 删除用独立墓碑表 MEMO_TOMBSTONE_KEY，语义与 plans/checkins 墓碑一致；
+   · 首页站内提示去重键 "memoId|YYYY-MM-DD" 存 MEMO_NOTIFIED_KEY，
+     与 reminder-state.json（钉钉去重）口径区分开。
+   · ⚠️ 删除语义是「最终一致」：前端先删本地 + 立墓碑，仓库侧要等下一次
+     sync-memos 事件才会剔除。这个窗口内（几分钟级）仓库 / 钉钉仍可能看到
+     刚删除的备忘，属固有设计窗口，不算数据丢失。
+   ===================================================================== */
+
+/**
+ * 读取备忘录列表，做读时字段补全。
+ * 任何异常退化为空数组，绝不让页面崩掉。
+ * @returns {Array<{id:string, title:string, due:string, done:boolean, createdAt:number}>}
+ */
+function loadMemos() {
+  let data = [];
+  try {
+    const raw = safeGetItem(MEMO_KEY);
+    data = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error("读取备忘录失败，已重置：", e);
+    data = [];
+  }
+  if (!Array.isArray(data)) return [];
+
+  return data
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      // ⚠️ 脏数据缺 id 时【不能】用 genId() 现场生成：每次 load 都会得到新 id，
+      //    墓碑 / 标记完成永远定位不到这条。改为按内容派生稳定 id，
+      //    同一条脏数据每次 load 结果一致，可被墓碑精确剔除。
+      //    只对缺 id 的旧数据兜底；正常条目（带 id）原样保留。
+      const id =
+        typeof item.id === "string" && item.id
+          ? item.id
+          : "memo-stable-" + hashString(`${item.title || ""}|${item.due || ""}|${item.createdAt || ""}`);
+      return {
+        id,
+        title:
+          typeof item.title === "string" && item.title.trim() ? item.title.trim() : "未命名备忘",
+        due: typeof item.due === "string" ? item.due : "",
+        done: item.done === true,
+        createdAt: Number(item.createdAt) || Date.now(),
+      };
+    });
+}
+
+/**
+ * 写入备忘录列表。
+ * @param {Array<Object>} list 备忘录数组
+ * @returns {void}
+ */
+function saveMemos(list) {
+  safeSetItem(MEMO_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+}
+
+/**
+ * 新增一条一次性备忘。
+ * @param {{title:string, due:string}} fields 标题 + 到期时间（"YYYY-MM-DD HH:MM"）
+ * @returns {Object} 新建的完整备忘对象（含 id）
+ */
+function addMemo(fields) {
+  const f = fields && typeof fields === "object" ? fields : {};
+  const list = loadMemos();
+  const item = {
+    id: genId(),
+    title: typeof f.title === "string" && f.title.trim() ? f.title.trim() : "未命名备忘",
+    due: typeof f.due === "string" ? f.due : "",
+    done: false,
+    createdAt: Date.now(),
+  };
+  list.push(item);
+  saveMemos(list);
+  return item;
+}
+
+/**
+ * 按 id 更新备忘（浅合并 patch）。
+ * @param {string} id 备忘 id
+ * @param {Object} patch 要合并的字段
+ * @returns {void}
+ */
+function updateMemo(id, patch) {
+  saveMemos(loadMemos().map((m) => (m.id === id ? Object.assign({}, m, patch) : m)));
+}
+
+/**
+ * 按 id 删除备忘，并立墓碑（否则合并同步会把这条备忘从仓库里捞回来）。
+ * @param {string} id 备忘 id
+ * @returns {void}
+ */
+function deleteMemo(id) {
+  saveMemos(loadMemos().filter((m) => m.id !== id));
+  const tomb = loadMemoTombstones();
+  tomb[id] = Date.now();
+  safeSetItem(MEMO_TOMBSTONE_KEY, JSON.stringify(tomb));
+}
+
+/**
+ * 把备忘标记为已完成（一次性语义：提醒过就算完成）。
+ * @param {string} id 备忘 id
+ * @returns {void}
+ */
+function markMemoDone(id) {
+  updateMemo(id, { done: true });
+}
+
+/**
+ * 读取备忘录墓碑表：{[id]: 删除时间戳}。
+ * @returns {Object}
+ */
+function loadMemoTombstones() {
+  try {
+    const raw = safeGetItem(MEMO_TOMBSTONE_KEY);
+    const o = raw ? JSON.parse(raw) : {};
+    return o && typeof o === "object" ? o : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+/**
+ * 返回备忘录墓碑 id 数组（供 sync-memos 事件剔除）。
+ * @returns {string[]}
+ */
+function memoTombstoneIds() {
+  return Object.keys(loadMemoTombstones());
+}
+
+/**
+ * 解析 "YYYY-MM-DD HH:MM"（按浏览器本地时区）。
+ * @param {string} due 形如 "2026-08-08 09:30"
+ * @returns {number} 毫秒时间戳；非法输入返回 Infinity（视为永不到期）
+ */
+function memoDueMs(due) {
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(String(due || "").trim());
+  if (!m) return Infinity;
+  const d = new Date(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    0,
+    0
+  );
+  const t = d.getTime();
+  return Number.isFinite(t) ? t : Infinity;
+}
+
+/**
+ * 挑出「已到期且未完成」的备忘。
+ * @param {number} [nowTs] 参考时间戳，缺省为当前时间
+ * @returns {Array<Object>} 到期未完成的备忘数组
+ */
+function dueMemos(nowTs) {
+  const now = Number.isFinite(nowTs) ? nowTs : Date.now();
+  return loadMemos().filter((m) => !m.done && memoDueMs(m.due) <= now);
+}
+
+/**
+ * 判断某条备忘今天是否已在首页弹过站内提示。
+ * 去重键：`memoId|YYYY-MM-DD`，与 reminder-state.json 的钉钉去重口径区分开。
+ * @param {string} id 备忘 id
+ * @param {string} [day] 日期键，缺省为今天
+ * @returns {boolean} true = 今天已弹过
+ */
+function isMemoNotified(id, day) {
+  const key = `${id}|${day || dateKey()}`;
+  try {
+    const raw = safeGetItem(MEMO_NOTIFIED_KEY);
+    const o = raw ? JSON.parse(raw) : {};
+    return Boolean(o && typeof o === "object" && o[key]);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 记录某条备忘今天已在首页弹过站内提示。
+ * @param {string} id 备忘 id
+ * @param {string} [day] 日期键，缺省为今天
+ * @returns {void}
+ */
+function markMemoNotified(id, day) {
+  const key = `${id}|${day || dateKey()}`;
+  let o = {};
+  try {
+    const raw = safeGetItem(MEMO_NOTIFIED_KEY);
+    o = raw ? JSON.parse(raw) : {};
+    if (!o || typeof o !== "object") o = {};
+  } catch (e) {
+    o = {};
+  }
+  o[key] = 1;
+  safeSetItem(MEMO_NOTIFIED_KEY, JSON.stringify(o));
+}
+
+/**
+ * 备忘录专用 repository_dispatch（event_type="sync-memos"）。
+ * 刻意【不】复用 dispatchSync —— 那是 {plans, checkins, tombstones} 契约，
+ * 备忘录独立走 data/memos.json 文件同步，禁止混入打卡契约。
+ * @param {Array<Object>} memos 备忘录数组
+ * @param {string} token GitHub Personal Access Token
+ * @returns {Promise<void>}
+ * @throws {Error} 网络异常或 HTTP 非 2xx 时抛出
+ */
+async function dispatchMemos(memos, token) {
+  const resp = await fetch(REPO_DISPATCH_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/vnd.github+json",
+    },
+    body: JSON.stringify({
+      event_type: "sync-memos",
+      client_payload: { memos, tombstones: { memos: memoTombstoneIds() } },
+    }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    if (resp.status === 401) {
+      throw new Error("同步失败（401）：GitHub Token 无效或权限不足。");
+    }
+    if (resp.status === 403) {
+      throw new Error("同步失败（403）：Token 无权限或触发频率限制。");
+    }
+    throw new Error("HTTP " + resp.status + " " + errText);
+  }
+}
+
+/**
+ * 备忘录变更后的自动同步（防抖 800ms）。
+ * 未配置 token 时静默跳过；只有失败才弹 toast。
+ * @returns {void}
+ */
+function scheduleAutoSyncMemos() {
+  if (!resolveToken()) return;
+  clearTimeout(memoAutoSyncTimer);
+  memoAutoSyncTimer = setTimeout(async () => {
+    const token = resolveToken();
+    if (!token) return;
+    try {
+      await dispatchMemos(loadMemos(), token);
+    } catch (err) {
+      console.error("备忘录自动同步失败：", err);
+      showToast(err.message, "error");
+    }
+  }, AUTO_SYNC_DELAY);
 }
