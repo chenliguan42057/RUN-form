@@ -4,7 +4,39 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#060a16" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="星河契约" />
   <title>星历 · 星河契约</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+  <!-- v6 主题防闪：必须在 styles.css 之前落 data-theme，否则会先闪一帧默认色 -->
+  <script>
+    (function () {
+      try {
+        var mode = "auto";
+        var value = "";
+        var raw = localStorage.getItem("runform_theme");
+        if (raw) {
+          var o = JSON.parse(raw);
+          if (o && typeof o === "object") {
+            mode = o.mode === "manual" ? "manual" : "auto";
+            value = typeof o.value === "string" ? o.value : "";
+          }
+        }
+        var t = mode === "manual" && value ? value : "";
+        if (!t) {
+          var h = new Date().getHours();
+          t = h < 5 ? "polar" : h < 8 ? "dawn" : h < 18 ? "origin" : "midnight";
+        }
+        if (t && t !== "origin") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        /* 读不到就用默认主题，绝不因此白屏 */
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -23,6 +55,17 @@
 
     <!-- 里程碑祝贺 -->
     <div id="cheer-slot"><!-- uiCheer 注入 --></div>
+
+    <!-- v6 · 段位（C1）：#rank 是天文台徽章跳过来的锚点 -->
+    <section class="card" id="rank">
+      <h2 class="card-title">🎖 位阶</h2>
+      <div id="rank-card-slot"><!-- uiRankCard 注入 --></div>
+    </section>
+
+    <!-- v6 · 阶段回望（C5） -->
+    <section class="card review-block" id="review-card">
+      <div id="review-slot"><!-- uiReviewBlock 注入 --></div>
+    </section>
 
     <!-- 总览四宫格 -->
     <section class="card">
@@ -113,16 +156,65 @@
       <div class="freq-legend" id="freq-legend"></div>
     </section>
 
+    <!-- v6 · 情绪光谱（C3） -->
+    <section class="card" id="spectrum-card">
+      <div class="card-head">
+        <h2 class="card-title">🎨 情绪光谱</h2>
+        <select id="spectrum-range" class="input input-inline" aria-label="情绪光谱时间范围">
+          <option value="30">近 30 天</option>
+          <option value="90">近 90 天</option>
+          <option value="180">近 180 天</option>
+        </select>
+      </div>
+      <div id="spectrum-slot"><!-- uiSpectrum 注入 --></div>
+    </section>
+
+    <!-- v6 · 星河海报（B4） -->
+    <section class="card" id="poster-card">
+      <h2 class="card-title">🖼 星河海报</h2>
+      <div id="poster-slot"><!-- uiPosterPreview 注入 --></div>
+    </section>
+
     <footer class="footer">
       <p>星河契约 · RUN-form · 青 = 提醒送达，金 = 手动点亮</p>
     </footer>
   </main>
 
+  <!-- v6 星屑画布（z-index 60，永不吃点击） -->
+  <canvas id="fx-layer" aria-hidden="true"></canvas>
+  <!-- v6 浮层挂载点（z-index 80，toast 仍在其上） -->
+  <div id="overlay-root"></div>
+
   <!-- 全局 toast 提示容器 -->
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- ⚠️ 加载顺序固定：store.js → components.js → app3.js -->
+  <!-- PWA：注册 Service Worker（异步，不阻塞页面） -->
+  <script src="register-sw.js"></script>
+  <!-- 背景图 blur-up：高清图加载完后淡出低清占位 -->
+  <script>
+    (function () {
+      const img = new Image();
+      img.src = "assets/bg-vangogh-ocean.webp";
+      if (img.complete) {
+        document.body.classList.add("bg-ready");
+      } else {
+        img.addEventListener("load", function () {
+          document.body.classList.add("bg-ready");
+        });
+      }
+    })();
+  </script>
+  <!-- ⚠️ 加载顺序固定：store.js → v6 模块 → components.js → app3.js
+       星历页承载段位卡 / 情绪光谱 / 阶段回望 / 星河海报。 -->
   <script src="store.js"></script>
+  <script src="sensory.js"></script>
+  <script src="theme.js"></script>
+  <script src="rank.js"></script>
+  <script src="mood.js"></script>
+  <script src="review.js"></script>
+  <script src="poster.js"></script>
+  <script src="celebrate.js"></script>
+  <script src="shortcuts.js"></script>
   <script src="components.js"></script>
   <script src="app3.js"></script>
 </body>
