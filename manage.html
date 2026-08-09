@@ -259,6 +259,19 @@
             可降低泄露风险；如怀疑 token 已暴露，应立即在 GitHub 撤销并重新生成。
           </p>
 
+          <label for="proxy-url-input" class="field-label">同步代理地址（免填 Token，可选）</label>
+          <input
+            type="url"
+            id="proxy-url-input"
+            class="input"
+            placeholder="https://runform-sync.你的子域.workers.dev"
+            autocomplete="off"
+          />
+          <p class="setting-note">
+            不想在手机上填 40 位 Token？部署 <code>cloudflare/</code> 里的无令牌代理后，
+            把它的地址填这里（或留空、由内置地址自动启用）。代理持有 PAT，站点永不接触 Token，手机端零配置即可同步、到点推钉钉。
+          </p>
+
           <div class="form-actions">
             <button type="button" class="btn btn-vg-blue" id="sync-btn">同步到仓库</button>
           </div>
