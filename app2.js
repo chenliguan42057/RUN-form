@@ -92,6 +92,13 @@ const quotePreviewCount = $("quote-preview-count");
 const patInput = $("pat-input");
 const syncBtn = $("sync-btn");
 
+// 备忘录（v6.1）
+const memoForm = $("memo-form");
+const memoTitleInput = $("memo-title");
+const memoDueInput = $("memo-due");
+const memoAddBtn = $("memo-add-btn");
+const memoList = $("memo-list");
+
 // ============================ 模块状态 ============================
 
 /** 当前正在编辑的计划 id；null 表示「新增」模式 */
@@ -424,6 +431,60 @@ function renderLedger() {
 }
 
 /**
+ * 渲染备忘录列表（未完成 / 已完成分组，各自按到期时间升序）。
+ * @returns {void}
+ */
+function renderMemos() {
+  if (!memoList) return;
+  const list = loadMemos();
+  if (list.length === 0) {
+    memoList.innerHTML =
+      `<p class="memo-empty">还没有备忘，记一条临时事项，到点会在首页提醒你。</p>`;
+    return;
+  }
+
+  const nowTs = Date.now();
+  const pending = list
+    .filter((m) => !m.done)
+    .sort((a, b) => memoDueMs(a.due) - memoDueMs(b.due));
+  const done = list
+    .filter((m) => m.done)
+    .sort((a, b) => memoDueMs(a.due) - memoDueMs(b.due));
+
+  const itemHtml = (m) => {
+    const overdue = !m.done && memoDueMs(m.due) <= nowTs;
+    const dueText = m.due || "未设到期";
+    const metaClass = "memo-meta" + (overdue ? " is-overdue" : "");
+    const overdueTag = overdue ? " ⏰" : "";
+    return (
+      `<div class="memo-item${m.done ? " is-done" : ""}" data-id="${escapeHtml(m.id)}">` +
+      `<div class="memo-main">` +
+      `<span class="memo-title">${escapeHtml(m.title)}</span>` +
+      `<span class="${metaClass}">${escapeHtml(dueText)}${overdueTag}</span>` +
+      `</div>` +
+      `<div class="memo-acts">` +
+      (m.done
+        ? `<button type="button" class="btn btn-ghost btn-sm" data-act="memo-undo">撤销</button>`
+        : `<button type="button" class="btn btn-ghost btn-sm" data-act="memo-done">完成</button>`) +
+      `<button type="button" class="delete-btn" data-act="memo-del">删除</button>` +
+      `</div>` +
+      `</div>`
+    );
+  };
+
+  const html =
+    (pending.length
+      ? `<p class="memo-group-label">待提醒（${pending.length}）</p>` +
+        pending.map(itemHtml).join("")
+      : "") +
+    (done.length
+      ? `<p class="memo-group-label">已完成（${done.length}）</p>` +
+        done.map(itemHtml).join("")
+      : "");
+  memoList.innerHTML = html;
+}
+
+/**
  * 把偏好写回三个控件（用于首次进入与导入后刷新）。
  * @returns {void}
  */
@@ -440,6 +501,7 @@ function renderPrefs() {
 function renderAll() {
   renderSky();
   renderLedger();
+  renderMemos();
 }
 
 // ============================ 事件：星图（委托） ============================
@@ -703,6 +765,67 @@ if (clearAllBtn) {
   });
 }
 
+// ============================ 事件：备忘录（v6.1） ============================
+
+if (memoForm) {
+  memoForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const title = memoTitleInput ? memoTitleInput.value.trim() : "";
+    if (!title) {
+      showToast("先给这条备忘取个名字", "error");
+      if (memoTitleInput) memoTitleInput.focus();
+      return;
+    }
+    const rawDue = memoDueInput ? memoDueInput.value : "";
+    // datetime-local 输出形如 "2026-08-08T09:30"，转成统一口径 "YYYY-MM-DD HH:MM"
+    const due = rawDue ? rawDue.replace("T", " ") : "";
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(due)) {
+      showToast("到期时间格式应为 YYYY-MM-DD HH:MM", "error");
+      if (memoDueInput) memoDueInput.focus();
+      return;
+    }
+    addMemo({ title, due });
+    showToast("备忘已记下，到点会提醒你 ⏰", "success");
+    if (memoTitleInput) memoTitleInput.value = "";
+    if (memoDueInput) memoDueInput.value = "";
+    renderMemos();
+    scheduleAutoSyncMemos();
+  });
+}
+
+if (memoList) {
+  memoList.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-act]");
+    if (!btn || !memoList.contains(btn)) return;
+    const item = btn.closest(".memo-item");
+    const id = item ? item.getAttribute("data-id") : null;
+    if (!id) return;
+    const act = btn.getAttribute("data-act");
+
+    if (act === "memo-done") {
+      markMemoDone(id);
+      showToast("已标记完成，这条备忘不再提醒", "success");
+      renderMemos();
+      scheduleAutoSyncMemos();
+      return;
+    }
+    if (act === "memo-undo") {
+      updateMemo(id, { done: false });
+      showToast("已恢复待提醒", "success");
+      renderMemos();
+      scheduleAutoSyncMemos();
+      return;
+    }
+    if (act === "memo-del") {
+      if (!window.confirm("确定删除这条备忘吗？")) return;
+      deleteMemo(id);
+      showToast("备忘已删除", "success");
+      renderMemos();
+      scheduleAutoSyncMemos();
+    }
+  });
+}
+
 // ============================ 事件：同步 ============================
 
 if (syncBtn) {
@@ -725,18 +848,56 @@ if (patInput) {
 // ============================ 事件：扩充语录库 ============================
 
 /**
- * 刷新「将新增 N 条」预览。
- * N 是【清洗后】的候选条数，不含「与现有库重复」的判断——那一步要异步读 quotes.json，
- * 放到真正提交时做，避免每敲一个字都去比对 1100+ 条。
+ * 刷新「扩充语录库」卡片的实时状态。
+ * 现在会显示：总条数、本次将新增、已有重复、重复列表。
+ * 重复检测仍然异步走 loadMindsetQuotes()，但 1100+ 条 modern 浏览器解析 JSON 很快，
+ * 实际输入反馈可接受；真遇到弱网，检测会安静失败，不影响提交。
  * @returns {void}
  */
-function renderQuotePreview() {
-  if (!quotePreviewCount || !quoteInput) return;
-  quotePreviewCount.textContent = String(parseQuoteInput(quoteInput.value).length);
+async function renderQuotePreview() {
+  if (!quoteInput) return;
+  const candidates = parseQuoteInput(quoteInput.value);
+
+  // 1) 本次将新增
+  if (quotePreviewCount) quotePreviewCount.textContent = String(candidates.length);
+
+  // 2) 已有重复（异步但低延迟）
+  let duplicates = [];
+  try {
+    const existing = await loadMindsetQuotes();
+    if (mindsetQuotesReady()) {
+      const known = new Set(existing.map((q) => String(q).trim()));
+      duplicates = candidates.filter((s) => known.has(s));
+    }
+  } catch (e) {
+    // 库没就绪时不标重复，交给 add-quotes.yml 兜底
+    duplicates = [];
+  }
+
+  if (quoteDuplicateCount) quoteDuplicateCount.textContent = String(duplicates.length);
+
+  const dupBox = document.getElementById("quote-duplicate-box");
+  const dupList = document.getElementById("quote-duplicate-list");
+  if (dupBox && dupList) {
+    if (duplicates.length) {
+      dupBox.hidden = false;
+      dupList.innerHTML = duplicates
+        .map((q) => `<li>${escapeHtml(q)}</li>`)
+        .join("");
+    } else {
+      dupBox.hidden = true;
+      dupList.innerHTML = "";
+    }
+  }
 }
 
 if (quoteInput) {
-  quoteInput.addEventListener("input", renderQuotePreview);
+  // input 时先给即时条数，再异步查重
+  quoteInput.addEventListener("input", () => {
+    const candidates = parseQuoteInput(quoteInput.value);
+    if (quotePreviewCount) quotePreviewCount.textContent = String(candidates.length);
+    renderQuotePreview();
+  });
 }
 
 if (addQuoteBtn) {
@@ -758,11 +919,282 @@ if (addQuoteBtn) {
   });
 }
 
+/* =====================================================================
+   v6 · 设置抽屉里的新开关
+   天色 / 声音与触感 / 白噪音 / 环境动效 / 星幕 / 星图互鉴。
+   能力探测不过的整块直接把 DOM 藏掉——按下去没反应，比没有这个按钮更糟。
+   ===================================================================== */
+
+/** 四个主题在切换条上的小圆点颜色，与各主题的主色对齐 */
+const THEME_DOTS = {
+  origin: "#f2c14e",
+  midnight: "#7aa2f7",
+  polar: "#8fd6e8",
+  dawn: "#f0a267",
+};
+
+/**
+ * 渲染天色切换条。
+ * @returns {void}
+ */
+function renderThemeSwitch() {
+  const slot = $("theme-slot-v6");
+  if (!slot || !window.Theme || typeof uiThemeSwitch !== "function") return;
+  const cfg = window.Theme.get();
+  const now = window.Theme.resolved();
+  slot.innerHTML = uiThemeSwitch({
+    mode: cfg.mode,
+    value: cfg.value,
+    resolved: now,
+    resolvedName: (window.Theme.META[now] || {}).name || now,
+    list: window.Theme.THEMES.map((k) => ({
+      key: k,
+      name: (window.Theme.META[k] || {}).name || k,
+      dot: THEME_DOTS[k] || "#f2c14e",
+    })),
+  });
+}
+
+/**
+ * 渲染白噪音三选一。
+ * @returns {void}
+ */
+function renderWhiteNoise() {
+  const slot = $("wn-slot");
+  if (!slot || !window.WhiteNoise || typeof uiWhiteNoise !== "function") return;
+  slot.innerHTML = uiWhiteNoise({
+    scenes: window.WhiteNoise.SCENES,
+    current: window.WhiteNoise.current(),
+    volume: window.WhiteNoise.getVolume(),
+  });
+}
+
+/**
+ * 渲染星图互鉴。
+ * @param {{result?:Object, error?:string}} [state] 上一次对照的结果
+ * @returns {void}
+ */
+function renderFriendMap(state) {
+  const slot = $("fm-slot");
+  if (!slot || !window.FriendMap || typeof uiFriendCompare !== "function") return;
+  const s = state || {};
+  slot.innerHTML = uiFriendCompare({
+    code: window.FriendMap.encode(),
+    result: s.result || null,
+    error: s.error || "",
+  });
+}
+
+/**
+ * 按能力决定 v6 各块的可见性，并回填开关状态。
+ * @returns {void}
+ */
+function syncV6Prefs() {
+  const silentBox = $("pref-silent");
+  if (silentBox && window.Sensory) silentBox.checked = window.Sensory.isSilent();
+
+  const ambCard = $("ambient-card");
+  const ambBox = $("pref-ambient");
+  if (ambCard) {
+    const ok = Boolean(window.Ambient && window.Ambient.isSupported());
+    ambCard.hidden = !ok;
+    if (ok && ambBox) ambBox.checked = window.Ambient.isEnabled();
+  }
+
+  const ssCard = $("screensaver-card");
+  const ssBox = $("pref-screensaver");
+  if (ssCard) {
+    const ok = Boolean(window.Screensaver && window.Screensaver.isSupported());
+    ssCard.hidden = !ok;
+    if (ok && ssBox) ssBox.checked = window.Screensaver.isEnabled();
+  }
+}
+
+/**
+ * 绑定 v6 抽屉里的全部交互，只跑一次。
+ * @returns {void}
+ */
+function bindV6Settings() {
+  // ---- 天色 ----
+  const themeSlotV6 = $("theme-slot-v6");
+  if (themeSlotV6) {
+    themeSlotV6.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-theme-mode],[data-theme-set]");
+      if (!btn || !window.Theme) return;
+      const set = btn.getAttribute("data-theme-set");
+      if (set) window.Theme.setMode("manual", set);
+      else window.Theme.setMode("auto");
+      renderThemeSwitch();
+    });
+  }
+
+  // ---- 静默总开关 ----
+  const silentBox = $("pref-silent");
+  if (silentBox) {
+    silentBox.addEventListener("change", () => {
+      if (!window.Sensory) return;
+      window.Sensory.setSilent(silentBox.checked);
+      if (silentBox.checked && window.WhiteNoise) {
+        // 静默是一票否决：正在放的白噪音必须当场停
+        window.WhiteNoise.stop();
+        renderWhiteNoise();
+      }
+      showToast(silentBox.checked ? "静默了。只留画面。" : "声音回来了 ♪", "success");
+    });
+  }
+
+  // ---- 白噪音 ----
+  const wnSlot = $("wn-slot");
+  if (wnSlot) {
+    wnSlot.addEventListener("click", (event) => {
+      const card = event.target.closest("[data-wn]");
+      if (!card || !window.WhiteNoise) return;
+      if (window.Sensory && window.Sensory.isSilent()) {
+        showToast("现在是静默模式，先把上面那个勾去掉", "info");
+        return;
+      }
+      // 用户手势就这一下，AudioContext 必须在这里解锁
+      if (window.Sensory) window.Sensory.unlock();
+      const key = card.getAttribute("data-wn");
+      const playing = window.WhiteNoise.toggle(key);
+      renderWhiteNoise();
+      const scene = window.WhiteNoise.SCENES.find((s) => s.key === key);
+      showToast(
+        playing ? `${scene ? scene.icon + " " + scene.name : key} 起来了` : "静下来了",
+        "success"
+      );
+    });
+    wnSlot.addEventListener("input", (event) => {
+      if (!event.target || event.target.id !== "wn-vol" || !window.WhiteNoise) return;
+      window.WhiteNoise.setVolume(Number(event.target.value) / 100);
+    });
+  }
+
+  // ---- 环境动效 ----
+  const ambBox = $("pref-ambient");
+  if (ambBox) {
+    ambBox.addEventListener("change", () => {
+      if (!window.Ambient) return;
+      const ok = window.Ambient.toggle(ambBox.checked);
+      if (ambBox.checked && !ok) {
+        ambBox.checked = false;
+        showToast("这台设备起不了环境动效，已保持关闭", "error");
+        return;
+      }
+      showToast(ambBox.checked ? "背景开始流动了" : "背景安静下来了", "success");
+    });
+  }
+
+  // ---- 星幕 ----
+  const ssBox = $("pref-screensaver");
+  if (ssBox) {
+    ssBox.addEventListener("change", () => {
+      if (!window.Screensaver) return;
+      window.Screensaver.setEnabled(ssBox.checked);
+      showToast(ssBox.checked ? "闲置 3 分钟就进星幕" : "星幕关了", "success");
+    });
+  }
+  const ssNow = $("ss-now");
+  if (ssNow) {
+    ssNow.addEventListener("click", () => {
+      if (!window.Screensaver) return;
+      closeSettings();
+      window.Screensaver.enter();
+    });
+  }
+
+  // ---- 星图互鉴 ----
+  const fmSlot = $("fm-slot");
+  if (fmSlot) {
+    fmSlot.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-fm]");
+      if (!btn || !window.FriendMap) return;
+      const act = btn.getAttribute("data-fm");
+
+      if (act === "copy") {
+        const code = window.FriendMap.encode();
+        window.FriendMap.copy(code);
+        showToast(`短码已复制：${code}`, "success");
+        return;
+      }
+      if (act === "read") {
+        const input = $("fm-input");
+        const raw = input ? input.value : "";
+        if (!String(raw).trim()) {
+          renderFriendMap({ error: "先把朋友的短码粘进来。" });
+          return;
+        }
+        const res = window.FriendMap.compare(raw);
+        if (!res || !res.ok) {
+          renderFriendMap({
+            error: (res && res.error) || "这串短码读不出来，确认一下有没有漏字符。",
+          });
+          return;
+        }
+        renderFriendMap({ result: res });
+      }
+    });
+  }
+}
+
+/**
+ * v6 装配总入口。任何一环炸掉都不许影响星图页本体。
+ * @returns {void}
+ */
+function bootV6() {
+  if (window.Theme) window.Theme.startAutoWatch();
+
+  renderThemeSwitch();
+  renderWhiteNoise();
+  renderFriendMap();
+  syncV6Prefs();
+  bindV6Settings();
+
+  if (window.Ambient) window.Ambient.autoStart();
+  if (window.Screensaver && window.Screensaver.isEnabled()) window.Screensaver.armIdle();
+
+  if (window.Shortcuts) {
+    window.Shortcuts.init({
+      check: () => {
+        showToast("这里是星图页，点亮请回天文台（按 G）", "info");
+      },
+      theme: () => {
+        if (!window.Theme) return;
+        const list = window.Theme.THEMES;
+        const next = list[(list.indexOf(window.Theme.resolved()) + 1) % list.length];
+        window.Theme.setMode("manual", next);
+        renderThemeSwitch();
+        showToast(`天色换成「${(window.Theme.META[next] || {}).name || next}」`, "success");
+      },
+      silent: () => {
+        if (!window.Sensory) return;
+        const on = !window.Sensory.isSilent();
+        window.Sensory.setSilent(on);
+        if (on && window.WhiteNoise) window.WhiteNoise.stop();
+        syncV6Prefs();
+        renderWhiteNoise();
+        showToast(on ? "静默了。只留画面。" : "声音回来了 ♪", "success");
+      },
+      goto: () => {
+        location.href = "index.html";
+      },
+      escape: () => {
+        if (window.Screensaver && window.Screensaver.isActive()) {
+          window.Screensaver.exit();
+          return;
+        }
+        if (starModal && !starModal.hidden) closeStarModal();
+        else if (settingsDrawer && !settingsDrawer.hidden) closeSettings();
+      },
+    });
+  }
+}
+
 // ============================ 跨标签页同步 ============================
 
 window.addEventListener("storage", (event) => {
   if (!event.key) return;
-  if (event.key === PLAN_KEY || event.key === CHECKIN_KEY) {
+  if (event.key === PLAN_KEY || event.key === CHECKIN_KEY || event.key === MEMO_KEY) {
     renderAll();
   } else if (event.key === PREFS_KEY) {
     prefs = loadPrefs();
@@ -792,10 +1224,27 @@ function init() {
   renderPrefs();
   resetPlanForm();
   renderAll();
+
+  // 语录库总条数：先显示本地梵高兜底数，异步换成真实大库条数
+  const quoteTotalCount = document.getElementById("quote-total-count");
+  if (quoteTotalCount) quoteTotalCount.textContent = String(VAN_GOGH_QUOTES.length);
+  loadMindsetQuotes()
+    .then((quotes) => {
+      if (quoteTotalCount) quoteTotalCount.textContent = String(quotes.length);
+    })
+    .catch(() => {});
+
   renderQuotePreview();
 
   uiTooltip(document.body);
   uiRevealOnLoad(appRoot);
+
+  // v6 放在最后：星图本体先能用，增强再叠上去
+  try {
+    bootV6();
+  } catch (err) {
+    console.error("v6 装配异常（不影响星图页）：", err);
+  }
 }
 
 init();
