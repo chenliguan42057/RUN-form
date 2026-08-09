@@ -67,6 +67,7 @@ jobs:
           import hmac
           import json
           import os
+          import re
           import time
           import urllib.error
           import urllib.parse
@@ -75,6 +76,7 @@ jobs:
           # ---------------------------- 常量 ----------------------------
 
           PLANS_PATH = os.path.join("data", "plans.json")
+          MEMOS_PATH = os.path.join("data", "memos.json")
           STATE_PATH = os.path.join("data", "reminder-state.json")
           SITE_URL = "https://chenliguan42057.github.io/RUN-form/"
           # 补偿窗口：计划时间过去 WINDOW_MIN 分钟以内都算「本次该推」
@@ -180,7 +182,12 @@ jobs:
               return True
 
           def send_dingtalk(title, text):
-              """加签后调用钉钉机器人 webhook；失败抛异常由调用方决定退出码。"""
+              """加签后调用钉钉机器人 webhook；失败抛异常由调用方决定退出码。
+
+              ⚠️ v6.1 起消息类型 markdown → actionCard：
+                 钉钉 markdown 不支持按钮，只有 actionCard 的 btns 数组才有真按钮。
+                 打卡提醒与备忘录提醒共用本函数，统一带「👉 打开星河自律」按钮。
+              """
               webhook = os.environ.get("DINGTALK_WEBHOOK", "")
               secret = os.environ.get("DINGTALK_SECRET", "")
               if not webhook or not secret:
@@ -195,8 +202,13 @@ jobs:
               url = f"{webhook}&timestamp={timestamp}&sign={sign}"
 
               payload = {
-                  "msgtype": "markdown",
-                  "markdown": {"title": title, "text": text},
+                  "msgtype": "actionCard",
+                  "actionCard": {
+                      "title": title,
+                      "text": text,
+                      "btnOrientation": "0",
+                      "btns": [{"title": "👉 打开星河自律", "actionURL": SITE_URL}],
+                  },
               }
               body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
               request = urllib.request.Request(
@@ -229,11 +241,17 @@ jobs:
 
           now = datetime.datetime.now(BJ_TZ)
           today_key = now.strftime("%Y-%m-%d")
+          now_str = now.strftime("%Y-%m-%d %H:%M")
 
           plans = load_json(PLANS_PATH, [])
           if not isinstance(plans, list):
               plans = []
           plans = [p for p in plans if isinstance(p, dict)]
+
+          memos = load_json(MEMOS_PATH, [])
+          if not isinstance(memos, list):
+              memos = []
+          memos = [m for m in memos if isinstance(m, dict)]
 
           state = load_json(STATE_PATH, {})
           if not isinstance(state, dict):
@@ -277,6 +295,29 @@ jobs:
                   continue
               due.append((plan, matched_day.strftime("%Y-%m-%d")))
 
+          # ---- 1b. 挑出「已到期且未完成」的备忘录 ----
+          # 备忘录是一次性提醒：due <= now 且 done != true 且未推送过就推。
+          # ⚠️ 不套 WINDOW_MIN 补偿窗口 —— 计划是「周期性」提醒需要窗口兜底抖动，
+          #    备忘录是「一次性」提醒，错过就错过，到点即推，不补偿更简单。
+          due_memos = []  # 元素为 memo
+          for memo in memos:
+              memo_id = str(memo.get("id") or "")
+              if not memo_id:
+                  print(f"跳过无 id 的备忘：{memo.get('title')}")
+                  continue
+              if memo.get("done") is True:
+                  continue
+              due_str = str(memo.get("due") or "")
+              # ⚠️ due 必须是定长格式 "YYYY-MM-DD HH:MM"（含前导零）。
+              #    手工写缺前导零的 "2026-8-8 9:30" 会破坏字符串比较的字典序，
+              #    宁可不推也不可误推：格式非法直接跳过并打警告。
+              if not re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$", due_str):
+                  print(f"跳过 due 格式非法的备忘：{memo_id}（due={due_str!r}）")
+                  continue
+              if due_str > now_str:
+                  continue
+              due_memos.append(memo)
+
           # ---- 2. 强制推送（仅 workflow_dispatch 手工测试用，跳过时间与去重） ----
           if force_plan_id:
               forced = next((p for p in plans if str(p.get("id") or "") == force_plan_id), None)
@@ -288,14 +329,14 @@ jobs:
                   due.append((forced, today_key))
               print(f"强制推送已启用：{forced.get('name')}（跳过时间判定与去重）")
 
-          if not due:
-              print(f"[{now:%Y-%m-%d %H:%M} +08:00] 当前窗口内无到期计划，跳过推送")
+          if not due and not due_memos:
+              print(f"[{now:%Y-%m-%d %H:%M} +08:00] 当前窗口内无到期计划，也无到期备忘，跳过推送")
               set_output("sent_any", "false")
               raise SystemExit(0)
 
-          # ---- 3. 幂等去重：同一天同一计划只推一次 ----
-          # key 形如 "2026-08-06|abc123"，day_key 是「计划所属日」（跨天时为昨天），
-          # 与 store.js 的 rebuildReminderLog 解析口径一致，避免热力图日期错位与雪球漏推。
+          # ---- 3. 幂等去重 ----
+          # 计划：同一天同一计划只推一次。key 形如 "2026-08-06|abc123"，
+          #   day_key 是「计划所属日」（跨天时为昨天），与 store.js rebuildReminderLog 口径一致。
           pending = []
           for plan, day_key in due:
               key = f"{day_key}|{plan.get('id')}"
@@ -304,16 +345,24 @@ jobs:
                   continue
               pending.append((key, plan))
 
-          if not pending:
-              print("窗口内的计划本日均已推送过，无需重复发送")
+          # 备忘录：一条备忘只推一次，key 用 "memo|{id}"，与计划 key 前缀区分。
+          # 复用同一个 reminder-state.json 的 sent 字段，但绝不混入计划 key 的日期段。
+          pending_memos = []
+          for memo in due_memos:
+              key = f"memo|{memo.get('id')}"
+              if key in sent:
+                  print(f"备忘已推送过，跳过：{key}")
+                  continue
+              pending_memos.append((key, memo))
+
+          if not pending and not pending_memos:
+              print("窗口内的计划本日均已推送过，备忘也均已送达，无需重复发送")
               set_output("sent_any", "false")
               raise SystemExit(0)
 
           # ---- 4. 组装消息 ----
-          # 语录按「计划所属日」取，而非调度日：避免 23:55 计划跨天在次日 00:07 推送时，
-          # 钉钉语录与前端该计划当日（如 08-06）页面对不上（对齐本文件 QUOTES 一致性约定）。
-          # 批量消息可能含不同 day_key，取 pending[0] 所属日作为本次消息的语录种子。
-          quote = pick_quote(pending[0][0].split("|")[0])
+          # 计划消息：语录按「计划所属日」取，而非调度日（对齐 QUOTES 一致性约定）。
+          quote = pick_quote(pending[0][0].split("|")[0]) if pending else pick_quote(today_key)
           time_label = now.strftime("%H:%M")
 
           def plan_line(plan):
@@ -324,68 +373,97 @@ jobs:
               tail = f"　—　{desc}" if desc else ""
               return f"- {icon} **{name}**（{plan.get('time', '08:00')}）{tail}"
 
-          if len(pending) < BATCH_THRESHOLD:
-              plan = pending[0][1]
-              icon = plan.get("icon") or "🌟"
-              name = plan.get("name") or "未命名"
-              desc = (plan.get("desc") or "").strip()
-              title = f"星河自律 · {name}"
-              lines = [
-                  "## 🌌 星河自律 · 打卡提醒",
-                  "",
-                  f"### {icon} {name}",
-              ]
-              if desc:
-                  lines.append(f"> {desc}")
-              lines += [
-                  "",
-                  f"到时间啦（{time_label}），去把今天这颗星点亮吧。",
-                  "",
-                  f"*{quote}*",
-                  "",
-                  f"[👉 打开星河自律]({SITE_URL})",
-                  "",
-                  "———　不按惯例 · RUN-form",
-              ]
-          else:
-              title = f"星河自律 · {len(pending)} 个计划到点"
-              lines = [
-                  "## 🌌 星河自律 · 打卡提醒",
-                  "",
-                  f"**{time_label}** 有 {len(pending)} 个计划到时间啦：",
-                  "",
-              ]
-              lines += [plan_line(plan) for _, plan in pending]
-              lines += [
-                  "",
-                  f"*{quote}*",
-                  "",
-                  f"[👉 打开星河自律]({SITE_URL})",
-                  "",
-                  "———　不按惯例 · RUN-form",
-              ]
+          # messages：[(title, text)]，可能同时有计划和备忘两条
+          messages = []
 
-          text = "\n".join(lines)
+          if pending:
+              if len(pending) < BATCH_THRESHOLD:
+                  plan = pending[0][1]
+                  icon = plan.get("icon") or "🌟"
+                  name = plan.get("name") or "未命名"
+                  desc = (plan.get("desc") or "").strip()
+                  title = f"星河自律 · {name}"
+                  lines = [
+                      "## 🌌 星河自律 · 打卡提醒",
+                      "",
+                      f"### {icon} {name}",
+                  ]
+                  if desc:
+                      lines.append(f"> {desc}")
+                  lines += [
+                      "",
+                      f"到时间啦（{time_label}），去把今天这颗星点亮吧。",
+                      "",
+                      f"*{quote}*",
+                      "",
+                      f"[👉 打开星河自律]({SITE_URL})",
+                      "",
+                      "———　不按惯例 · RUN-form",
+                  ]
+              else:
+                  title = f"星河自律 · {len(pending)} 个计划到点"
+                  lines = [
+                      "## 🌌 星河自律 · 打卡提醒",
+                      "",
+                      f"**{time_label}** 有 {len(pending)} 个计划到时间啦：",
+                      "",
+                  ]
+                  lines += [plan_line(plan) for _, plan in pending]
+                  lines += [
+                      "",
+                      f"*{quote}*",
+                      "",
+                      f"[👉 打开星河自律]({SITE_URL})",
+                      "",
+                      "———　不按惯例 · RUN-form",
+                  ]
+              messages.append((title, "\n".join(lines)))
+
+          if pending_memos:
+              memo_quote = pick_quote(today_key)
+              title = f"星河自律 · {len(pending_memos)} 条备忘到点"
+              lines = [
+                  "## 🌌 星河自律 · 备忘提醒",
+                  "",
+                  f"**{time_label}** 有 {len(pending_memos)} 条备忘到时间啦：",
+                  "",
+              ]
+              for _, memo in pending_memos:
+                  lines.append(
+                      f"- 📌 **{memo.get('title') or '未命名'}**（{memo.get('due') or '未设到期'}）"
+                  )
+              lines += [
+                  "",
+                  f"*{memo_quote}*",
+                  "",
+                  f"[👉 打开星河自律]({SITE_URL})",
+                  "",
+                  "———　不按惯例 · RUN-form",
+              ]
+              messages.append((title, "\n".join(lines)))
 
           # ---- 5. 演练模式：只打印，不发送、不写盘 ----
           if dry_run:
               print("===== DRY RUN：以下内容不会真的发送 =====")
-              print(f"title: {title}")
-              print(text)
+              for title, text in messages:
+                  print(f"title: {title}")
+                  print(text)
               print("=========================================")
               set_output("sent_any", "false")
               raise SystemExit(0)
 
           # ---- 6. 真正发送 ----
+          # 计划 / 备忘可能是两条消息，逐条发；任何一条失败都视为本次失败，
+          # 不写状态文件，下一次调度（计划窗口内 / 备忘未完成）会自动重试。
           try:
-              send_dingtalk(title, text)
+              for title, text in messages:
+                  send_dingtalk(title, text)
           except RuntimeError as exc:
               print(f"发送失败：{exc}")
-              # 失败不写状态文件，下一次调度还在窗口内时会自动重试
               set_output("sent_any", "false")
               raise SystemExit(1)
 
-          print(f"钉钉提醒发送成功，共 {len(pending)} 个计划")
+          print(f"钉钉提醒发送成功，共 {len(messages)} 条消息（计划 {len(pending)} · 备忘 {len(pending_memos)}）")
 
           # ---- 7. 落盘去重状态（发送成功后才写） ----
           now_ms = int(time.time() * 1000)
@@ -396,10 +474,25 @@ jobs:
                   "icon": plan.get("icon") or "🌟",
                   "ts": now_ms,
               }
+          for key, memo in pending_memos:
+              sent[key] = {
+                  "title": memo.get("title") or "未命名",
+                  "due": memo.get("due") or "",
+                  "ts": now_ms,
+              }
 
           # 清掉过老的记录，避免状态文件无限膨胀（前端热力图最多看一年）
+          # ⚠️ 计划 key 按日期段清理；memo key 无日期段，按 ts 清理。
           floor_date = (now - datetime.timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
-          stale = [k for k in sent if k.split("|", 1)[0] < floor_date]
+          floor_ms = now_ms - KEEP_DAYS * 86400000
+          stale = []
+          for k in sent:
+              if k.startswith("memo|"):
+                  rec_ts = sent[k].get("ts", 0)
+                  if rec_ts < floor_ms:
+                      stale.append(k)
+              elif k.split("|", 1)[0] < floor_date:
+                  stale.append(k)
           for key in stale:
               del sent[key]
           if stale:
@@ -409,6 +502,18 @@ jobs:
           with open(STATE_PATH, "w", encoding="utf-8") as fp:
               json.dump({"sent": sent, "updatedAt": now_ms}, fp, ensure_ascii=False, indent=2)
               fp.write("\n")
+
+          # ---- 8. 备忘录一次性语义：推送过就算完成，写回 done 到 data/memos.json ----
+          # 只标记真正推送成功的备忘（pending_memos 里的），写回后由提交步骤一并入库。
+          if pending_memos:
+              pushed_ids = {memo.get("id") for _, memo in pending_memos}
+              for memo in memos:
+                  if memo.get("id") in pushed_ids:
+                      memo["done"] = True
+              with open(MEMOS_PATH, "w", encoding="utf-8") as fp:
+                  json.dump(memos, fp, ensure_ascii=False, indent=2)
+                  fp.write("\n")
+              print(f"已写回 {MEMOS_PATH}：标记 {len(pushed_ids)} 条备忘为完成")
 
           set_output("sent_any", "true")
           print(f"已写入 {STATE_PATH}，累计 {len(sent)} 条送达记录")
@@ -420,11 +525,13 @@ jobs:
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add data/reminder-state.json
+          # reminder-state.json：计划 + 备忘的去重状态；
+          # memos.json：备忘推送成功后标记 done 写回（一次性语义）。
+          git add data/reminder-state.json data/memos.json
           if git diff --cached --quiet; then
             echo "提醒状态无变化，跳过提交"
           else
-            git commit -m "chore(reminder): 记录提醒送达状态 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git commit -m "chore(reminder): 记录提醒送达状态与备忘完成 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             # sync.yml 可能正好也在推 data/*.json，撞车了就 rebase 后重试一次
             git push || {
               echo "推送冲突，rebase 后重试"
