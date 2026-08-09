@@ -96,6 +96,17 @@ const AUTO_SYNC_DELAY = 800;
 /** 一天的毫秒数 */
 const DAY_MS = 86400000;
 
+/**
+ * 无令牌同步代理（Cloudflare Worker）地址。
+ * 部署后由我填入（见 cloudflare/ 目录）；留空则回退读 localStorage 里用户手动填的覆盖。
+ * PAT 只存在于 Worker 的【密钥】中，站点永不持有 Token，手机端零配置即可同步。
+ */
+const SYNC_PROXY_URL = "";
+/** 代理共享密钥：与 Worker 的 APP_KEY 完全一致，仅用于挡掉陌生人滥用，非机密、可公开 */
+const SYNC_APP_KEY = "runform-shared-9k2d";
+/** localStorage 中「用户手动填写的代理地址覆盖」键（管理页可填，优先级高于 SYNC_PROXY_URL） */
+const PROXY_URL_KEY = "runform_proxy_url";
+
 // ============================ 常量：文案与色板 ============================
 
 /** 频率中文标签映射 */
@@ -1845,6 +1856,41 @@ function resolveToken() {
 }
 
 /**
+ * 取回无令牌代理地址：优先 localStorage 里用户手动填的覆盖，否则用内置常量 SYNC_PROXY_URL。
+ * @returns {string}
+ */
+function resolveProxyUrl() {
+  const over = safeGetItem(PROXY_URL_KEY);
+  if (over && over.trim()) return over.trim();
+  return SYNC_PROXY_URL || "";
+}
+
+/**
+ * 通过无令牌代理转发 repository_dispatch：站点不持有 PAT，由 Worker 用其密钥里的 PAT 转发。
+ * 失败抛出【可直接展示给用户】的错误信息。
+ * @param {string} eventType 例如 "sync-checkins" / "sync-memos"
+ * @param {Object} clientPayload 与 sync.yml 契约一致的对象
+ * @returns {Promise<void>}
+ * @throws {Error} 网络异常或 HTTP 非 2xx 时抛出
+ */
+async function dispatchViaProxy(eventType, clientPayload) {
+  const url = resolveProxyUrl();
+  if (!url) throw new Error("未配置同步代理地址");
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-App-Key": SYNC_APP_KEY,
+    },
+    body: JSON.stringify({ event_type: eventType, client_payload: clientPayload }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => "");
+    throw new Error("代理同步失败（" + resp.status + "）：" + t);
+  }
+}
+
+/**
  * 纯粹的 repository_dispatch 调用：只发请求，不碰任何 UI。
  * 失败时抛出【可直接展示给用户】的错误信息，由调用方决定提示方式。
  *
@@ -1898,16 +1944,26 @@ async function dispatchSync(plans, checkins, token) {
  * @returns {void}
  */
 function scheduleAutoSync() {
-  // 提前探测：拿不到 token 就完全不排期，保持静默
-  if (!resolveToken()) return;
+  // 默认走本地 Token；没有 Token 但有代理地址时回退走代理；两者皆无则静默跳过
+  const token = resolveToken();
+  const proxy = !token && resolveProxyUrl();
+  if (!token && !proxy) return;
 
   clearTimeout(autoSyncTimer);
   autoSyncTimer = setTimeout(async () => {
-    // 延时到点后重新取一次 token 与数据，保证同步的是最终状态
-    const token = resolveToken();
-    if (!token) return;
+    // 延时到点后重新取一次，保证同步的是最终状态
+    const tk = resolveToken();
+    const px = resolveProxyUrl();
     try {
-      await dispatchSync(loadPlans(), loadCheckins(), token);
+      if (tk) {
+        await dispatchSync(loadPlans(), loadCheckins(), tk);
+      } else if (px) {
+        await dispatchViaProxy("sync-checkins", {
+          plans: loadPlans(),
+          checkins: loadCheckins(),
+          tombstones: tombstoneIds(),
+        });
+      }
     } catch (err) {
       console.error("自动同步失败：", err);
       showToast(err.message, "error");
@@ -1921,8 +1977,9 @@ function scheduleAutoSync() {
  */
 async function syncToRepo() {
   const token = resolveToken();
-  if (!token) {
-    showToast("请先在管理页填写 Personal Access Token", "error");
+  const proxy = resolveProxyUrl();
+  if (!token && !proxy) {
+    showToast("请先在管理页填写 Token，或填入同步代理地址", "error");
     return;
   }
 
@@ -1934,14 +1991,32 @@ async function syncToRepo() {
   }
 
   try {
-    await dispatchSync(loadPlans(), loadCheckins(), token);
-    // v6.1：备忘录走独立事件 sync-memos（不混入 plans/checkins 契约），一并触发
-    try {
-      await dispatchMemos(loadMemos(), token);
-    } catch (memoErr) {
-      console.error("备忘录同步失败：", memoErr);
-      showToast(memoErr.message, "error");
-      return;
+    if (token) {
+      await dispatchSync(loadPlans(), loadCheckins(), token);
+      // v6.1：备忘录走独立事件 sync-memos（不混入 plans/checkins 契约），一并触发
+      try {
+        await dispatchMemos(loadMemos(), token);
+      } catch (memoErr) {
+        console.error("备忘录同步失败：", memoErr);
+        showToast(memoErr.message, "error");
+        return;
+      }
+    } else {
+      await dispatchViaProxy("sync-checkins", {
+        plans: loadPlans(),
+        checkins: loadCheckins(),
+        tombstones: tombstoneIds(),
+      });
+      try {
+        await dispatchViaProxy("sync-memos", {
+          memos: loadMemos(),
+          tombstones: { memos: memoTombstoneIds() },
+        });
+      } catch (memoErr) {
+        console.error("备忘录同步失败：", memoErr);
+        showToast(memoErr.message, "error");
+        return;
+      }
     }
     showToast("已触发同步，仓库稍后更新", "success");
   } catch (err) {
@@ -2565,13 +2640,22 @@ async function dispatchMemos(memos, token) {
  * @returns {void}
  */
 function scheduleAutoSyncMemos() {
-  if (!resolveToken()) return;
+  const token = resolveToken();
+  const proxy = !token && resolveProxyUrl();
+  if (!token && !proxy) return;
   clearTimeout(memoAutoSyncTimer);
   memoAutoSyncTimer = setTimeout(async () => {
-    const token = resolveToken();
-    if (!token) return;
+    const tk = resolveToken();
+    const px = resolveProxyUrl();
     try {
-      await dispatchMemos(loadMemos(), token);
+      if (tk) {
+        await dispatchMemos(loadMemos(), tk);
+      } else if (px) {
+        await dispatchViaProxy("sync-memos", {
+          memos: loadMemos(),
+          tombstones: { memos: memoTombstoneIds() },
+        });
+      }
     } catch (err) {
       console.error("备忘录自动同步失败：", err);
       showToast(err.message, "error");
