@@ -958,4 +958,15 @@ window.addEventListener("storage", (e) => {
       console.error("提醒记录加载异常：", err);
       renderOfflineChip();
     });
+
+  // v6.1「首屏即把本地已有的计划/打卡/备忘录推上云端」：
+  // 之前只在用户改动数据时自动同步，导致微信里早已存在的计划从未上传，
+  // 钉钉定时任务读不到 data/plans.json → 不推送提醒。这里在加载时补一次，
+  // 真正满足「以后要自动同步」。无 token 时 scheduleAutoSync 内部静默跳过。
+  try {
+    if (typeof scheduleAutoSync === "function") scheduleAutoSync();
+    if (typeof scheduleAutoSyncMemos === "function") scheduleAutoSyncMemos();
+  } catch (err) {
+    console.error("首屏自动同步触发异常（不影响主页面）：", err);
+  }
 })();
