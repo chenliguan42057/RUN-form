@@ -785,11 +785,17 @@ if (memoForm) {
       return;
     }
     addMemo({ title, due });
-    showToast("备忘已记下，到点会提醒你 ⏰", "success");
     if (memoTitleInput) memoTitleInput.value = "";
     if (memoDueInput) memoDueInput.value = "";
     renderMemos();
     scheduleAutoSyncMemos();
+    // 诚实反馈：没配 Token 时备忘只存本机，【不会】推钉钉（根因常是 Token 没进浏览器）
+    const __hasToken = typeof resolveToken === "function" ? !!resolveToken() : false;
+    if (__hasToken) {
+      showToast("备忘已记下，到点会推钉钉 ⏰", "success");
+    } else {
+      showToast("备忘已存到本机；未配置 GitHub Token，不会推钉钉。去「管理」页填 Token 即可开启", "warning");
+    }
   });
 }
 
