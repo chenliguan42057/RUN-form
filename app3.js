@@ -370,6 +370,234 @@ function renderAll() {
   renderBadges();
   renderFreqDist();
   renderOfflineChip();
+  // v6 三块也跟着数据走；海报是用户主动生成的，不在这里重画
+  renderRankCard();
+  renderReviewBlock();
+  renderSpectrum();
+}
+
+/* =====================================================================
+   v6 · 星历页新增四块
+   位阶（C1）/ 阶段回望（C5）/ 情绪光谱（C3）/ 星河海报（B4）。
+   模块给的是「自然单位」的数据，组件要的是「渲染单位」，
+   两者之间的换算全放在本段的 adapt* 里——两边都不用为对方将就。
+   ===================================================================== */
+
+/** 回望当前粒度 */
+let reviewScope = "week";
+
+/** 情绪光谱回溯天数 */
+let spectrumDays = 30;
+
+/** 海报预览的 dataURL，重新生成前先释放引用 */
+let posterUrl = "";
+
+/**
+ * rankProgress() → uiRankCard() 的入参。
+ * 模块用 0~1 的小数与 need，组件要百分数与 remain。
+ * @param {Object} p Rank.rankProgress() 的返回
+ * @returns {Object}
+ */
+function adaptRankProgress(p) {
+  if (!p) return {};
+  return {
+    current: p.current,
+    next: p.next,
+    percent: Math.round((Number(p.percent) || 0) * 100),
+    remain: Number(p.need) || 0,
+    blockedBy: p.blockedBy || "",
+  };
+}
+
+/**
+ * renderReview() 的 sections 里是 lines 数组，组件读的是 body 字符串。
+ * @param {Object} d Review.renderReview() 的返回
+ * @returns {Object}
+ */
+function adaptReview(d) {
+  if (!d) return { empty: true };
+  return Object.assign({}, d, {
+    sections: (d.sections || []).map((s) => ({
+      title: s.title,
+      body: Array.isArray(s.lines) ? s.lines.join("　·　") : String(s.body || ""),
+    })),
+  });
+}
+
+/**
+ * MoodStore.spectrum() 的 counts 是 {key:n}，组件要的是有序 items。
+ * 按 MOODS 的定义顺序排，光谱条的颜色次序才稳定（不会因为今天焦躁多就换位）。
+ * @param {Object} spec MoodStore.spectrum() 的返回
+ * @returns {{items:Array, total:number}}
+ */
+function adaptSpectrum(spec) {
+  if (!spec || !window.MoodStore) return { items: [], total: 0 };
+  const counts = spec.counts || {};
+  return {
+    total: Number(spec.total) || 0,
+    items: window.MoodStore.MOODS.map((m) => ({
+      key: m.key,
+      name: m.name,
+      hue: m.hue,
+      count: Number(counts[m.key]) || 0,
+    })),
+  };
+}
+
+/**
+ * 渲染位阶卡。
+ * @returns {void}
+ */
+function renderRankCard() {
+  const slot = $("rank-card-slot");
+  if (!slot || !window.Rank || typeof uiRankCard !== "function") return;
+  slot.innerHTML = uiRankCard(
+    adaptRankProgress(window.Rank.rankProgress()),
+    window.Rank.visibleTable()
+  );
+}
+
+/**
+ * 渲染阶段回望。
+ * @returns {void}
+ */
+function renderReviewBlock() {
+  const slot = $("review-slot");
+  if (!slot || !window.Review || typeof uiReviewBlock !== "function") return;
+  slot.innerHTML = uiReviewBlock(adaptReview(window.Review.renderReview(reviewScope)), reviewScope);
+}
+
+/**
+ * 渲染情绪光谱。
+ * @returns {void}
+ */
+function renderSpectrum() {
+  const slot = $("spectrum-slot");
+  if (!slot || !window.MoodStore || typeof uiSpectrum !== "function") return;
+  slot.innerHTML = uiSpectrum(adaptSpectrum(window.MoodStore.spectrum(spectrumDays)));
+}
+
+/**
+ * 渲染海报预览块。
+ * @param {{building?:boolean}} [state] 生成中标记
+ * @returns {void}
+ */
+function renderPoster(state) {
+  const slot = $("poster-slot");
+  if (!slot || typeof uiPosterPreview !== "function") return;
+  slot.innerHTML = uiPosterPreview({
+    url: posterUrl,
+    building: Boolean(state && state.building),
+    hideDate: prefs.posterHideDate !== false,
+  });
+}
+
+/**
+ * 绑定 v6 四块的交互。
+ * @returns {void}
+ */
+function bindV6Stats() {
+  const reviewSlot = $("review-slot");
+  if (reviewSlot) {
+    reviewSlot.addEventListener("click", (e) => {
+      const tab = e.target.closest("[data-review]");
+      if (!tab) return;
+      reviewScope = tab.getAttribute("data-review");
+      renderReviewBlock();
+    });
+  }
+
+  const range = $("spectrum-range");
+  if (range) {
+    range.addEventListener("change", () => {
+      spectrumDays = Number(range.value) || 30;
+      renderSpectrum();
+    });
+  }
+
+  const posterSlot = $("poster-slot");
+  if (posterSlot) {
+    posterSlot.addEventListener("change", (e) => {
+      if (!e.target || e.target.id !== "poster-hide-date") return;
+      prefs = savePrefs({ posterHideDate: e.target.checked });
+    });
+
+    posterSlot.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-poster]");
+      if (!btn || !window.Poster) return;
+      const act = btn.getAttribute("data-poster");
+
+      if (act === "save") {
+        const ok = window.Poster.download({ hideDate: prefs.posterHideDate !== false });
+        showToast(ok ? "海报已开始下载" : "这台设备存不下这张图，长按预览图试试", ok ? "success" : "error");
+        return;
+      }
+
+      // 2400×3600 画一次要几百毫秒，先把「正在描星」贴出去再动手，
+      // 否则用户会以为按钮没反应，连点好几下。
+      renderPoster({ building: true });
+      window.setTimeout(() => {
+        let url = "";
+        try {
+          url = window.Poster.build({ hideDate: prefs.posterHideDate !== false }) || "";
+        } catch (err) {
+          console.error("海报生成失败：", err);
+          url = "";
+        }
+        posterUrl = url;
+        renderPoster();
+        if (!url) showToast("海报没画出来，刷新页面再试一次", "error");
+      }, 30);
+    });
+  }
+}
+
+/**
+ * v6 装配总入口。任何一环炸掉都不许影响星历页本体。
+ * @returns {void}
+ */
+function bootV6() {
+  if (window.Theme) window.Theme.startAutoWatch();
+
+  renderRankCard();
+  renderReviewBlock();
+  renderSpectrum();
+  renderPoster();
+  bindV6Stats();
+
+  // 天文台的段位徽章带 #rank 锚点跳过来，这里补一次滚动（浏览器对动态节点不认锚点）
+  if (location.hash === "#rank") {
+    const card = $("rank");
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });
+  }
+
+  // 里程碑补放：在天文台错过的（比如打卡后立刻切走），来星历页时补一次
+  if (window.Celebrate) {
+    const days = window.Celebrate.pendingMilestone();
+    if (days) window.setTimeout(() => window.Celebrate.celebrateMilestone(days), 600);
+  }
+
+  if (window.Shortcuts) {
+    window.Shortcuts.init({
+      theme: () => {
+        if (!window.Theme) return;
+        const list = window.Theme.THEMES;
+        const next = list[(list.indexOf(window.Theme.resolved()) + 1) % list.length];
+        window.Theme.setMode("manual", next);
+        showToast(`天色换成「${(window.Theme.META[next] || {}).name || next}」`, "success");
+      },
+      silent: () => {
+        if (!window.Sensory) return;
+        const on = !window.Sensory.isSilent();
+        window.Sensory.setSilent(on);
+        showToast(on ? "静默了。只留画面。" : "声音回来了 ♪", "success");
+      },
+      goto: () => {
+        location.href = "index.html";
+      },
+      escape: () => {},
+    });
+  }
 }
 
 // ============================ 事件绑定 ============================
@@ -438,6 +666,13 @@ window.addEventListener("storage", (e) => {
 
   uiTooltip(document.body);
   uiRevealOnLoad(appRoot);
+
+  // v6 放在最后：星历本体先能看，增强再叠上去
+  try {
+    bootV6();
+  } catch (err) {
+    console.error("v6 装配异常（不影响星历页）：", err);
+  }
 
   loadReminderLog()
     .then(() => {
