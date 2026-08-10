@@ -1,18 +1,18 @@
 name: 钉钉打卡提醒
 
-# 触发：每 15 分钟跑一次（UTC cron，脚本内部换算成北京时间再判定）。
+# 触发：每 5 分钟跑一次（UTC cron，脚本内部换算成北京时间再判定）。
 #
 # 为什么是 15 分钟而不是整点？
 #   v2 用 "0 * * * *" 每小时整点跑，只能识别「本小时」，导致
 #   08:00 与 08:30 的计划都被压到同一次推送、且延迟最多 59 分钟。
-#   v3 改成 */15 + 30 分钟补偿窗口（WINDOW_MIN），配合幂等去重，
+#   v7 改成 */5 + 15 分钟补偿窗口（WINDOW_MIN），配合幂等去重，
 #   既能贴近真实时间点，又不会因为 GitHub Actions 调度抖动而漏推或重复推。
 #
-# ⚠️ GitHub 的 schedule 本身不保证准时，高峰期延迟 5~20 分钟是常态，
-#   WINDOW_MIN=30 就是为了兜住这段抖动；真的漏过窗口只会少推一次，不会崩。
+# ⚠️ GitHub 的 schedule 本身不保证准时，高峰期延迟 3~8 分钟是常态，
+#   WINDOW_MIN=15 就是为了兜住这段抖动；真的漏过窗口只会少推一次，不会崩。
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -77,10 +77,12 @@ jobs:
 
           PLANS_PATH = os.path.join("data", "plans.json")
           MEMOS_PATH = os.path.join("data", "memos.json")
+          CHECKIN_PATH = os.path.join("data", "checkins.json")
           STATE_PATH = os.path.join("data", "reminder-state.json")
-          SITE_URL = "https://chenliguan42057.github.io/RUN-form/"
+          SITE_URL = "https://chenliguan42057.github.io/RUN-form/manage.html"
           # 补偿窗口：计划时间过去 WINDOW_MIN 分钟以内都算「本次该推」
-          WINDOW_MIN = 30
+          # v7 起轮询收紧到 5 分钟，窗口相应从 30 收到 15，避免「迟到的提醒拖太久」
+          WINDOW_MIN = 15
           # 到期计划达到这个数量就合并成一条批量消息，避免刷屏
           BATCH_THRESHOLD = 2
           # 状态文件里超过这个天数的记录会被清掉，防止无限增长
@@ -234,6 +236,51 @@ jobs:
                   raise RuntimeError(f"钉钉返回错误：{result}")
               return result
 
+          def minutes_late(key, plan):
+              """该计划相对「到点」已经过去多少分钟（用于消息里显示「已到点 X 分钟」）。"""
+              day_key = str(key).split("|", 1)[0]
+              try:
+                  d = datetime.datetime.strptime(day_key, "%Y-%m-%d").date()
+              except Exception:
+                  d = now.date()
+              hour, minute = parse_hhmm(plan.get("time"))
+              dt = datetime.datetime.combine(d, datetime.time(hour, minute), tzinfo=BJ_TZ)
+              delta = (now - dt).total_seconds() / 60
+              return max(0, int(round(delta)))
+
+          def done_today(plan_id):
+              """该计划今天是否已经点亮（读打卡台账，按北京时间当天 00:00 起算）。"""
+              pid = str(plan_id or "")
+              if not pid:
+                  return False
+              today_start = datetime.datetime.combine(now.date(), datetime.time(0, 0), tzinfo=BJ_TZ)
+              for c in checkins:
+                  if str(c.get("planId") or "") != pid:
+                      continue
+                  ts = to_int(c.get("ts"), 0)
+                  if not ts:
+                      continue
+                  # ts 可能是毫秒（前端 Date.now()）或秒，统一归一
+                  secs = ts / 1000.0 if ts > 1e12 else float(ts)
+                  try:
+                      ct = datetime.datetime.fromtimestamp(secs, BJ_TZ)
+                  except Exception:
+                      continue
+                  if ct >= today_start:
+                      return True
+              return False
+
+          def day_part_greeting():
+              """按当前时段给一句开场白，增加提醒的温度（不破坏与前端一致的每日语录约定）。"""
+              h = now.hour
+              if h < 6:
+                  return "夜还深，点亮它再睡。"
+              if h < 12:
+                  return "清晨的第一颗星，最亮。"
+              if h < 18:
+                  return "午后别松懈，星还在等。"
+              return "入夜了，给今天一个交代。"
+
           # ---------------------------- 主流程 ----------------------------
 
           dry_run = str(os.environ.get("DRY_RUN", "")).strip().lower() == "true"
@@ -252,6 +299,12 @@ jobs:
           if not isinstance(memos, list):
               memos = []
           memos = [m for m in memos if isinstance(m, dict)]
+
+          # 打卡台账：用于消息里显示「今日进度」（该计划今天是否已点亮）
+          checkins = load_json(CHECKIN_PATH, [])
+          if not isinstance(checkins, list):
+              checkins = []
+          checkins = [c for c in checkins if isinstance(c, dict)]
 
           state = load_json(STATE_PATH, {})
           if not isinstance(state, dict):
@@ -378,10 +431,12 @@ jobs:
 
           if pending:
               if len(pending) < BATCH_THRESHOLD:
-                  plan = pending[0][1]
+                  key, plan = pending[0]
                   icon = plan.get("icon") or "🌟"
                   name = plan.get("name") or "未命名"
                   desc = (plan.get("desc") or "").strip()
+                  late = minutes_late(key, plan)
+                  done = done_today(plan.get("id"))
                   title = f"星河自律 · {name}"
                   lines = [
                       "## 🌌 星河自律 · 打卡提醒",
@@ -392,7 +447,9 @@ jobs:
                       lines.append(f"> {desc}")
                   lines += [
                       "",
-                      f"到时间啦（{time_label}），去把今天这颗星点亮吧。",
+                      f"到时间啦（{time_label}），已经点到 **{late} 分钟**，" + ("今天这颗星已经点亮 ✅" if done else "去把今天这颗星点亮吧 ⬜") + "。",
+                      "",
+                      f"> {day_part_greeting()}",
                       "",
                       f"*{quote}*",
                       "",
@@ -408,8 +465,15 @@ jobs:
                       f"**{time_label}** 有 {len(pending)} 个计划到时间啦：",
                       "",
                   ]
-                  lines += [plan_line(plan) for _, plan in pending]
+                  for key, plan in pending:
+                      icon = plan.get("icon") or "🌟"
+                      name = plan.get("name") or "未命名"
+                      late = minutes_late(key, plan)
+                      mark = "✅" if done_today(plan.get("id")) else "⬜"
+                      lines.append(f"- {icon} **{name}**（{plan.get('time', '08:00')}）已点到 {late} 分 · {mark}")
                   lines += [
+                      "",
+                      f"> {day_part_greeting()}",
                       "",
                       f"*{quote}*",
                       "",
@@ -429,10 +493,20 @@ jobs:
                   "",
               ]
               for _, memo in pending_memos:
+                  due_str = str(memo.get("due") or "")
+                  late_min = 0
+                  try:
+                      dt = datetime.datetime.strptime(due_str, "%Y-%m-%d %H:%M").replace(tzinfo=BJ_TZ)
+                      late_min = max(0, int(round((now - dt).total_seconds() / 60)))
+                  except Exception:
+                      pass
+                  tail = f"　已点到 {late_min} 分" if late_min else ""
                   lines.append(
-                      f"- 📌 **{memo.get('title') or '未命名'}**（{memo.get('due') or '未设到期'}）"
+                      f"- 📌 **{memo.get('title') or '未命名'}**（{due_str}）{tail}"
                   )
               lines += [
+                  "",
+                  f"> {day_part_greeting()}",
                   "",
                   f"*{memo_quote}*",
                   "",
