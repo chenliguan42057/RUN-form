@@ -1,1 +1,1 @@
-[]
+[{"id": "test-plan-002", "name": "部署验证计划", "freq": "daily", "time": "08:00", "day": 0, "enabled": true, "icon": "🧪", "color": "blue", "desc": "自动化部署验证（补 import base64 后复测）", "createdAt": 1786416143979}]
