@@ -33,7 +33,7 @@ jobs:
           # 取全量历史：推送冲突时要用 git pull --rebase 重试，浅克隆会 rebase 失败
           fetch-depth: 0
 
-      - name: 合并写入计划与台账（墓碑剔除）
+      - name: 合并写入计划与台账（墓碑剔除 + 跨设备删除累积）
         # ────────────────────────────────────────────────────────────────
         # v5 起改为【合并】，不再全量覆盖。原因见下：
         #
@@ -48,12 +48,16 @@ jobs:
         #   1) 读仓库现有内容，与前端推上来的按 id 合并（前端版本优先，因为它更新）
         #   2) 再按 client_payload.tombstones 里的 id 精确剔除 —— 删除依然生效
         #
-        # 兼容性：payload 里【没有】tombstones 字段时，说明是老版本前端，
-        # 退回全量覆盖，行为与改造前完全一致，不会把老页面搞坏。
+        # v6.2 改进（跨设备一致性）：
+        #   · 仓库维护 data/tombstones.json，累积所有设备的删除（key=id, value=删除时间戳）。
+        #     任何设备删了某条，其 id 会永久留在仓库墓碑里（TTL 180 天，老格式 ts=0 永不过期），
+        #     因此另一台设备之后同步、即便本地还留着这条，也会被墓碑剔除 → 删除真正跨设备生效。
+        #   · 同 id 冲突时按 updatedAt 取较大者（最后写入胜出），而不是「谁后同步谁覆盖」。
+        #   · 每次成功写入后额外产出 data/last-sync.json，供前端回读「最近同步时间」。
         #
-        # v6.1：同一个 job 按 event_type 分支。
-        #   sync-memos 时只处理备忘录，写 data/memos.json；
-        #   sync-checkins 时走上述 plans/checkins 合并逻辑，一字不差。
+        # 兼容性：payload 里 tombstones 是 map 形式（{plans:{id:ts},...}）；
+        #   若检测到它是 id 列表（老前端），自动按列表处理，行为与 v6.1 一致。
+        #   完全没有任何 tombstones 字段时（更老前端），退回全量覆盖。
         # ────────────────────────────────────────────────────────────────
         env:
           EVENT_TYPE: ${{ github.event.action }}
@@ -63,9 +67,11 @@ jobs:
           MEMOS_JSON: ${{ toJson(github.event.client_payload.memos) }}
         run: |
           python3 - <<'PY'
-          import os, json
+          import os, json, time
 
           event_type = os.environ.get("EVENT_TYPE", "sync-checkins")
+          now = int(time.time() * 1000)
+          TTL_MS = 180 * 24 * 3600 * 1000
 
           def parse_list(env_name):
               """解析环境变量里的 JSON 数组；解析失败或类型不对时退化为空数组。"""
@@ -97,46 +103,87 @@ jobs:
           def merge(remote, incoming, dead):
               """
               远端 + 前端 按 id 合并，再剔除墓碑。
-              前端版本优先：同一个 id 两边都有时，用前端那份（用户可能改过名字 / 图标）。
+              冲突时（同 id 两边都有）保留 updatedAt 较大者（最后写入胜出）；
+              缺 updatedAt 的老记录以 incoming 兜底，避免把新数据覆盖掉。
               """
-              merged = {}
+              by_remote = {}
               order = []
-              for item in remote + incoming:      # incoming 在后 → 覆盖 remote
-                  k = key_of(item)
+              for it in remote:
+                  k = key_of(it)
                   if k is None:
                       continue
-                  if k not in merged:
+                  if k not in by_remote:
                       order.append(k)
-                  merged[k] = item
-              return [merged[k] for k in order if str(k) not in dead]
+                  by_remote[k] = it
+              result = dict(by_remote)
+              for it in incoming:
+                  k = key_of(it)
+                  if k is None:
+                      continue
+                  if k not in result:
+                      order.append(k)
+                      result[k] = it
+                  else:
+                      r_ts = result[k].get("updatedAt") or 0
+                      i_ts = it.get("updatedAt") or 0
+                      if i_ts >= r_ts:
+                          result[k] = it
+              return [result[k] for k in order if str(k) not in dead]
 
-          def dead_set(raw_tomb, kind):
-              """从墓碑对象里取指定 kind 的 id 集合。"""
-              if raw_tomb is None:
-                  return set()
-              value = raw_tomb.get(kind) or []
-              if not isinstance(value, list):
-                  return set()
-              return {str(x) for x in value if x}
+          def parse_tomb(raw, kind):
+              """把 payload 里的 tombstones 解析成 {id: ts}；兼容老前端的 id 列表形式。"""
+              if not isinstance(raw, dict):
+                  return {}
+              val = raw.get(kind)
+              if val is None:
+                  return {}
+              if isinstance(val, list):
+                  return {str(x): 0 for x in val if x}
+              if isinstance(val, dict):
+                  return {str(k): (v or 0) for k, v in val.items()}
+              return {}
 
-          # ---- 事件分派：v6.1 备忘录走独立分支 ----
+          def read_repo_tomb(path):
+              """读仓库累积墓碑；结构 {plans:{id:ts}, checkins:{id:ts}, memos:{id:ts}}。"""
+              try:
+                  with open(path, encoding="utf-8") as fp:
+                      v = json.load(fp)
+              except (OSError, ValueError):
+                  v = {}
+              if not isinstance(v, dict):
+                  v = {}
+              out = {}
+              for kind in ("plans", "checkins", "memos"):
+                  kv = v.get(kind)
+                  out[kind] = kv if isinstance(kv, dict) else {}
+              return out
+
+          # ── 仓库累积墓碑（跨设备删除持久化）──
+          repo_tomb_path = os.path.join("data", "tombstones.json")
+          repo_tomb = read_repo_tomb(repo_tomb_path)
+          synced_at = {}
+
           if event_type == "sync-memos":
-              memos_in = parse_list("MEMOS_JSON")
-              # 墓碑：{memos: [...]}；缺字段 = 老前端 = 全量覆盖
+              kind = "memos"
+              incoming = parse_list("MEMOS_JSON")
               try:
                   raw_tomb = json.loads(os.environ.get("TOMBSTONES_JSON", "null"))
               except Exception:
                   raw_tomb = None
-              if not isinstance(raw_tomb, dict):
-                  raw_tomb = None
-              dead_memos = dead_set(raw_tomb, "memos")
-              memos = merge(read_repo_list("data/memos.json"), memos_in, dead_memos)
+              inc_tomb = parse_tomb(raw_tomb, kind)
+              acc = dict(repo_tomb.get(kind, {}))
+              acc.update(inc_tomb)
+              # TTL 裁剪：ts==0（老格式 / 永久生效）永不裁剪
+              acc = {k: v for k, v in acc.items() if v == 0 or (now - int(v or 0)) <= TTL_MS}
+              dead = set(str(k) for k in acc.keys())
+              merged = merge(read_repo_list("data/memos.json"), incoming, dead)
               os.makedirs("data", exist_ok=True)
               with open(os.path.join("data", "memos.json"), "w", encoding="utf-8") as f:
-                  json.dump(memos, f, ensure_ascii=False, indent=2)
-              print(f"sync-memos：合并写入 {len(memos)} 条备忘录（墓碑 {len(dead_memos)} 条）")
+                  json.dump(merged, f, ensure_ascii=False, indent=2)
+              repo_tomb[kind] = acc
+              synced_at[kind] = now
+              print(f"sync-memos：合并写入 {len(merged)} 条备忘录（累积墓碑 {len(dead)} 条）")
           else:
-              # ---- 原 sync-checkins 逻辑（v5 起合并 + 墓碑） ----
               raw_tomb = os.environ.get("TOMBSTONES_JSON", "null")
               try:
                   tomb = json.loads(raw_tomb)
@@ -148,12 +195,21 @@ jobs:
               checkins_in = parse_list("CHECKINS_JSON")
 
               if merge_mode:
-                  dead_plans = dead_set(tomb, "plans")
-                  dead_checkins = dead_set(tomb, "checkins")
-                  plans = merge(read_repo_list("data/plans.json"), plans_in, dead_plans)
-                  checkins = merge(read_repo_list("data/checkins.json"), checkins_in, dead_checkins)
+                  merged = {}
+                  for kind, incoming in (("plans", plans_in), ("checkins", checkins_in)):
+                      inc_tomb = parse_tomb(tomb, kind)
+                      acc = dict(repo_tomb.get(kind, {}))
+                      acc.update(inc_tomb)
+                      acc = {k: v for k, v in acc.items() if v == 0 or (now - int(v or 0)) <= TTL_MS}
+                      dead = set(str(k) for k in acc.keys())
+                      merged[kind] = merge(read_repo_list("data/%s.json" % kind), incoming, dead)
+                      repo_tomb[kind] = acc
+                      synced_at[kind] = now
+                  plans = merged["plans"]
+                  checkins = merged["checkins"]
                   mode_desc = (
-                      f"合并模式（墓碑 {len(dead_plans)} 计划 / {len(dead_checkins)} 记录）"
+                      f"合并模式（累积墓碑 {len(repo_tomb.get('plans', {}))} 计划 / "
+                      f"{len(repo_tomb.get('checkins', {}))} 记录）"
                   )
               else:
                   # 老前端兼容路径：与改造前一字不差
@@ -182,6 +238,26 @@ jobs:
                   json.dump(checkins, f, ensure_ascii=False, indent=2)
 
               print(f"{mode_desc}：写入 {len(plans)} 个计划、{len(checkins)} 条打卡记录")
+
+          # ── 写回累积墓碑 ──
+          with open(repo_tomb_path, "w", encoding="utf-8") as f:
+              json.dump(repo_tomb, f, ensure_ascii=False, indent=2)
+
+          # ── 写最近同步状态，供前端回读（消除「以为成功其实没同步」）──
+          last_sync = {}
+          try:
+              with open(os.path.join("data", "last-sync.json"), encoding="utf-8") as fp:
+                  last_sync = json.load(fp)
+              if not isinstance(last_sync, dict):
+                  last_sync = {}
+          except (OSError, ValueError):
+              last_sync = {}
+          for k, v in synced_at.items():
+              last_sync[k] = v
+          last_sync["status"] = "ok"
+          last_sync["updatedAt"] = now
+          with open(os.path.join("data", "last-sync.json"), "w", encoding="utf-8") as f:
+              json.dump(last_sync, f, ensure_ascii=False, indent=2)
           PY
 
       - name: 提交并推送
@@ -191,7 +267,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
-          # ⚠️⚠️ 按事件类型只 add 对应文件，【绝对不要】写成 `git add data/`。
+          # ⚠️⚠️ 按事件类型只 add 对应业务文件，【绝对不要】写成 `git add data/`。
           #   data/reminder-state.json 由 dingtalk-reminder.yml 独占写入（提醒送达状态），
           #   前端只读、从不上传。一旦这里把它一起提交，就会用「检出时的旧快照」
           #   覆盖掉提醒工作流刚写进去的新记录，导致：
@@ -202,6 +278,9 @@ jobs:
           else
             git add data/plans.json data/checkins.json
           fi
+
+          # 累加墓碑 + 最近同步状态：这两个文件由本工作流独占，安全提交
+          git add data/tombstones.json data/last-sync.json
 
           # 仅在有变更时提交，避免空提交
           if git diff --cached --quiet; then
