@@ -159,6 +159,13 @@
             autocomplete="off"
           />
 
+          <label for="plan-image" class="field-label field-label-gap">配图（可选，随星图同步到云端）</label>
+          <div class="image-upload">
+            <input type="file" id="plan-image" class="input-file" accept="image/*" />
+            <div class="image-preview" id="plan-image-preview" hidden></div>
+            <button type="button" class="mini-btn" id="plan-image-clear" hidden>移除图片</button>
+          </div>
+
           <div class="field-row field-label-gap">
             <div>
               <label for="plan-freq" class="field-label">周期</label>
@@ -275,6 +282,11 @@
           <div class="form-actions">
             <button type="button" class="btn btn-vg-blue" id="sync-btn">同步到仓库</button>
           </div>
+
+          <p class="setting-note" id="last-sync-line">
+            最近同步：<span id="last-sync-time">尚未同步</span>
+            · <a href="#" id="check-cloud-sync">检查云端</a>
+          </p>
         </section>
 
         <!-- 备份与恢复 -->
