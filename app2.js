@@ -626,6 +626,9 @@ if (planForm) {
 
     closeStarModal();
     renderAll();
+    if (typeof resolveToken === "function" && !resolveToken() && typeof resolveProxyUrl === "function" && !resolveProxyUrl()) {
+      showToast("⚠️ 未配置 Token，计划已存本机但未同步到云端/钉钉", "warning");
+    }
     scheduleAutoSync();
   });
 }
@@ -859,8 +862,8 @@ if (syncBtn) {
 }
 
 if (patInput) {
-  // 输入框失焦时把 token 落盘，省得用户填完忘了点同步
-  patInput.addEventListener("change", () => {
+  // 粘上/输入即落盘（不只靠失焦），避免手机/微信端没触发 change 导致 token 没存进去
+  const saveToken = () => {
     const value = patInput.value.trim();
     if (!value) return;
     if (!/^(ghp_|github_pat_)/.test(value)) {
@@ -869,7 +872,9 @@ if (patInput) {
       showToast("Token 已保存到本机浏览器", "success");
     }
     safeSetItem(TOKEN_KEY, value);
-  });
+  };
+  patInput.addEventListener("change", saveToken);
+  patInput.addEventListener("input", saveToken);
 }
 
 // ============================ 事件：扩充语录库 ============================
