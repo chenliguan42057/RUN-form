@@ -88,6 +88,8 @@ const MEMO_KEY = "runform_memos";
 const MEMO_TOMBSTONE_KEY = "runform_memo_tombstones";
 /** 站内提示去重键：{ "memoId|YYYY-MM-DD": 1 }，当天已弹过的备忘录不重复弹 */
 const MEMO_NOTIFIED_KEY = "runform_memo_notified";
+/** 最近一次本地成功发起同步的时间戳（plans/checkins 与 memos 共用，仅作状态展示） */
+const LAST_SYNC_KEY = "runform_last_sync";
 /** GitHub repository_dispatch 接口地址 */
 const REPO_DISPATCH_URL =
   "https://api.github.com/repos/chenliguan42057/RUN-form/dispatches";
@@ -753,6 +755,7 @@ async function notifyNew(content) {
       if (!resp.ok) console.warn("notify-new 直连返回", resp.status);
     } catch (e) {
       console.error("notify-new 直连失败：", e);
+      showToast("钉钉实时推送失败，请检查网络或 Token", "warning");
     }
     return;
   }
@@ -762,6 +765,7 @@ async function notifyNew(content) {
       await dispatchViaProxy("notify-new", payload);
     } catch (e) {
       console.error("notify-new 代理失败：", e);
+      showToast("钉钉实时推送失败，请检查网络或代理", "warning");
     }
   }
 }
@@ -782,7 +786,9 @@ function addPlan(fields) {
       ? f.color
       : COLOR_KEYS[hashString(id) % COLOR_KEYS.length],
     desc: typeof f.desc === "string" ? f.desc : "",
+    image: typeof f.image === "string" && f.image.trim() ? f.image.trim() : "",
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   };
   list.push(item);
   savePlans(list);
@@ -797,7 +803,9 @@ function addPlan(fields) {
  * @returns {void}
  */
 function updatePlan(id, patch) {
-  const list = loadPlans().map((p) => (p.id === id ? Object.assign({}, p, patch) : p));
+  const list = loadPlans().map((p) =>
+    p.id === id ? Object.assign({}, p, patch, { updatedAt: Date.now() }) : p
+  );
   savePlans(list);
 }
 
@@ -1035,6 +1043,7 @@ function addTombstones(kind, ids) {
 
 /**
  * 把墓碑表拍平成 sync.yml 要的形状：{ plans: [...id], checkins: [...id] }。
+ * 兼容老版本 sync.yml；新版本 sync.yml 读 map 形式（见 tombstoneMap）。
  * @returns {{plans:string[], checkins:string[]}}
  */
 function tombstoneIds() {
@@ -1042,6 +1051,19 @@ function tombstoneIds() {
   return {
     plans: Object.keys(tomb.plans),
     checkins: Object.keys(tomb.checkins),
+  };
+}
+
+/**
+ * 把墓碑表以 map 形式（{ id: 删除时间戳 }）传出，供 sync.yml 累积进仓库。
+ * 这是 v6.2 起 sync.yml 期望的契约，支持跨设备删除持久化。
+ * @returns {{plans:Object, checkins:Object}}
+ */
+function tombstoneMap() {
+  const tomb = loadTombstones();
+  return {
+    plans: tomb.plans || {},
+    checkins: tomb.checkins || {},
   };
 }
 
@@ -1814,6 +1836,7 @@ function exportData() {
     exportedAt: Date.now(),
     plans: loadPlans(),
     checkins: loadCheckins(),
+    memos: loadMemos(),
     prefs: loadPrefs(),
   };
   return JSON.stringify(payload, null, 2);
@@ -1823,7 +1846,7 @@ function exportData() {
  * 从 JSON 字符串导入并覆盖 / 合并本地数据。
  * @param {string} json 导入内容
  * @param {{merge?:boolean}} [opts] merge=true 时按 id 合并，false（默认）时整体覆盖
- * @returns {{plans:number, checkins:number}} 导入后本地的条数
+ * @returns {{plans:number, checkins:number, memos:number}} 导入后本地的条数
  * @throws {Error} 解析失败或结构非法时抛出可直接展示给用户的错误
  */
 function importData(json, opts) {
@@ -1841,10 +1864,14 @@ function importData(json, opts) {
   const incomingCheckins = Array.isArray(data.checkins)
     ? data.checkins.filter((x) => x && typeof x === "object")
     : null;
-  if (!incomingPlans && !incomingCheckins) {
-    throw new Error("导入失败：文件里既没有 plans 也没有 checkins 字段。");
+  const incomingMemos = Array.isArray(data.memos)
+    ? data.memos.filter((x) => x && typeof x === "object")
+    : null;
+  if (!incomingPlans && !incomingCheckins && !incomingMemos) {
+    throw new Error("导入失败：文件里没有 plans / checkins / memos 字段。");
   }
 
+  let memosChanged = false;
   if (o.merge) {
     // 合并：以本地为底，同 id 用导入数据覆盖，新 id 追加
     if (incomingPlans) {
@@ -1863,16 +1890,31 @@ function importData(json, opts) {
       });
       saveCheckins(Array.from(byId.values()).sort((a, b) => (a.ts || 0) - (b.ts || 0)));
     }
+    if (incomingMemos) {
+      const byId = new Map(loadMemos().map((m) => [m.id, m]));
+      incomingMemos.forEach((m) => {
+        const id = m.id || genId();
+        byId.set(id, Object.assign({}, byId.get(id) || {}, m, { id }));
+      });
+      saveMemos(Array.from(byId.values()));
+      memosChanged = true;
+    }
   } else {
     if (incomingPlans) savePlans(incomingPlans);
     if (incomingCheckins) {
       saveCheckins(incomingCheckins.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0)));
     }
+    if (incomingMemos) {
+      saveMemos(incomingMemos);
+      memosChanged = true;
+    }
   }
 
   if (data.prefs && typeof data.prefs === "object") savePrefs(data.prefs);
 
-  return { plans: loadPlans().length, checkins: loadCheckins().length };
+  if (memosChanged) scheduleAutoSyncMemos();
+
+  return { plans: loadPlans().length, checkins: loadCheckins().length, memos: loadMemos().length };
 }
 
 // ============================ 同步到 GitHub（v2 兼容，不改文案） ============================
@@ -1930,6 +1972,56 @@ async function dispatchViaProxy(eventType, clientPayload) {
 }
 
 /**
+ * 把图片以 Base64 形式上传到仓库 assets/uploads/ 目录（GitHub Contents API PUT）。
+ * 上传成功后返回可在 GitHub Pages 直接访问的图片 URL。
+ * 需要用户已配置 Token（或代理地址，后续可扩展）；否则抛错提示。
+ * @param {string} base64Data 不含 data: 前缀的 JPEG/PNG base64 串
+ * @param {string} filename 形如 1690000000000-ab12cd.jpg
+ * @returns {Promise<string>} 图片的公共访问 URL
+ * @throws {Error} 无 Token / 网络异常 / HTTP 非 2xx
+ */
+async function uploadImageToRepo(base64Data, filename) {
+  const token = resolveToken();
+  const proxy = !token && resolveProxyUrl();
+  if (!token && !proxy) {
+    throw new Error("未配置 Token，无法上传图片（在管理页填写 GitHub Token 即可）");
+  }
+  const path = `assets/uploads/${filename}`;
+  const apiUrl = `https://api.github.com/repos/chenliguan42057/RUN-form/contents/${path}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/vnd.github+json",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  // 若已存在同名文件，需要先取 sha 才能覆盖更新
+  let sha;
+  try {
+    const head = await fetch(apiUrl, { headers });
+    if (head.ok) {
+      const j = await head.json();
+      sha = j.sha;
+    }
+  } catch (e) {
+    /* 当作不存在，忽略 */
+  }
+
+  const body = { message: `chore: upload image ${filename}`, content: base64Data };
+  if (sha) body.sha = sha;
+  const resp = await fetch(apiUrl, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => "");
+    throw new Error("图片上传失败（" + resp.status + "）：" + (t || "请检查 Token 权限"));
+  }
+  return `https://chenliguan42057.github.io/RUN-form/${path}`;
+}
+
+
+/**
  * 纯粹的 repository_dispatch 调用：只发请求，不碰任何 UI。
  * 失败时抛出【可直接展示给用户】的错误信息，由调用方决定提示方式。
  *
@@ -1955,7 +2047,7 @@ async function dispatchSync(plans, checkins, token) {
     },
     body: JSON.stringify({
       event_type: "sync-checkins",
-      client_payload: { plans, checkins, tombstones: tombstoneIds() },
+      client_payload: { plans, checkins, tombstones: tombstoneMap() },
     }),
   });
 
@@ -2000,14 +2092,37 @@ function scheduleAutoSync() {
         await dispatchViaProxy("sync-checkins", {
           plans: loadPlans(),
           checkins: loadCheckins(),
-          tombstones: tombstoneIds(),
+          tombstones: tombstoneMap(),
         });
       }
+      markLocalSync();
     } catch (err) {
       console.error("自动同步失败：", err);
       showToast(err.message, "error");
     }
   }, AUTO_SYNC_DELAY);
+}
+
+/**
+ * 记录一次本地成功发起的同步（仅状态展示用，不写仓库）。
+ * @returns {void}
+ */
+function markLocalSync() {
+  try {
+    safeSetItem(LAST_SYNC_KEY, String(Date.now()));
+  } catch (e) {
+    /* 状态展示失败不应影响同步本身 */
+  }
+}
+
+/**
+ * 读取最近一次本地同步的时间（毫秒时间戳）；无记录返回 0。
+ * @returns {number}
+ */
+function loadLastSync() {
+  const raw = safeGetItem(LAST_SYNC_KEY);
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /**
@@ -2031,14 +2146,20 @@ async function syncToRepo() {
 
   try {
     if (token) {
+      // 计划是主同步，失败则整体算失败（由外层 catch 统一报错）
       await dispatchSync(loadPlans(), loadCheckins(), token);
       // v6.1：备忘录走独立事件 sync-memos（不混入 plans/checkins 契约），一并触发
+      let memoFailed = false;
       try {
         await dispatchMemos(loadMemos(), token);
       } catch (memoErr) {
         console.error("备忘录同步失败：", memoErr);
-        showToast(memoErr.message, "error");
-        return;
+        memoFailed = true;
+      }
+      if (memoFailed) {
+        showToast("计划已同步，但备忘同步失败，可重试", "warning");
+      } else {
+        showToast("已触发同步，仓库稍后更新", "success");
       }
     } else {
       await dispatchViaProxy("sync-checkins", {
@@ -2046,6 +2167,7 @@ async function syncToRepo() {
         checkins: loadCheckins(),
         tombstones: tombstoneIds(),
       });
+      let memoFailed = false;
       try {
         await dispatchViaProxy("sync-memos", {
           memos: loadMemos(),
@@ -2053,8 +2175,12 @@ async function syncToRepo() {
         });
       } catch (memoErr) {
         console.error("备忘录同步失败：", memoErr);
-        showToast(memoErr.message, "error");
-        return;
+        memoFailed = true;
+      }
+      if (memoFailed) {
+        showToast("计划已同步，但备忘同步失败，可重试", "warning");
+      } else {
+        showToast("已触发同步，仓库稍后更新", "success");
       }
     }
     showToast("已触发同步，仓库稍后更新", "success");
@@ -2245,6 +2371,7 @@ function buildStarMap(planList) {
       name: plan.name || "未命名",
       icon: plan.icon || "🌟",
       desc,
+      image: plan.image || "",
       freq: plan.freq || "daily",
       time: plan.time || "08:00",
       day: Number(plan.day) || 0,
@@ -2571,6 +2698,14 @@ function memoTombstoneIds() {
 }
 
 /**
+ * 备忘录墓碑表 map 形式（{ id: 删除时间戳 }），供 sync.yml 累积进仓库。
+ * @returns {Object}
+ */
+function memoTombstoneMap() {
+  return loadMemoTombstones();
+}
+
+/**
  * 解析 "YYYY-MM-DD HH:MM"（按浏览器本地时区）。
  * @param {string} due 形如 "2026-08-08 09:30"
  * @returns {number} 毫秒时间戳；非法输入返回 Infinity（视为永不到期）
@@ -2658,7 +2793,7 @@ async function dispatchMemos(memos, token) {
     },
     body: JSON.stringify({
       event_type: "sync-memos",
-      client_payload: { memos, tombstones: { memos: memoTombstoneIds() } },
+      client_payload: { memos, tombstones: { memos: memoTombstoneMap() } },
     }),
   });
 
@@ -2693,9 +2828,10 @@ function scheduleAutoSyncMemos() {
       } else if (px) {
         await dispatchViaProxy("sync-memos", {
           memos: loadMemos(),
-          tombstones: { memos: memoTombstoneIds() },
+          tombstones: { memos: memoTombstoneMap() },
         });
       }
+      markLocalSync();
     } catch (err) {
       console.error("备忘录自动同步失败：", err);
       showToast(err.message, "error");
