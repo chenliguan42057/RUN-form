@@ -1,1 +1,15 @@
-[]
+[
+  {
+    "color": "",
+    "createdAt": 1786440017703,
+    "day": 0,
+    "desc": "",
+    "enabled": true,
+    "freq": "daily",
+    "icon": "🌟",
+    "id": "verify-v62-1786440017",
+    "name": "部署验证-同步链路",
+    "time": "08:00",
+    "updatedAt": 1786440017703
+  }
+]
