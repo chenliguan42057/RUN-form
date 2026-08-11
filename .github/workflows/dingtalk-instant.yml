@@ -1,0 +1,123 @@
+name: 钉钉实时推送（新增即达）
+
+# 触发：前端新增一条计划 / 备忘后，store.js notifyNew() 发出 repository_dispatch，
+#       携带 client_payload.content（已格式化的内容描述）。本工作流立即推一条钉钉消息。
+#
+# ⚠️ event_type("notify-new") 与 store.js notifyNew() 的输出契约，两边必须同时改。
+#   这跟「每日晨报」(daily-digest.yml) / 「到点提醒」(dingtalk-reminder.yml) 是三块独立推送，
+#   互不冲突，也不共享去重状态。
+on:
+  repository_dispatch:
+    types: [notify-new]
+
+# 实时推送只发钉钉，不写仓库，读权限足够。
+permissions:
+  contents: read
+
+concurrency:
+  group: dingtalk-instant
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 推送钉钉（actionCard 带打开链接按钮）
+        id: send
+        # webhook / secret 从 GitHub Secrets 读取；content 经 env 传入，避免 ${{ }} 注入。
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          CONTENT: ${{ github.event.client_payload.content }}
+        run: |
+          python3 - <<'PY'
+          # -*- coding: utf-8 -*-
+          """实时推送：把前端刚新增的计划 / 备忘推一条钉钉 actionCard。"""
+          import base64
+          import datetime
+          import hashlib
+          import hmac
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          SITE_URL = "https://chenliguan42057.github.io/RUN-form/manage.html"
+          BJ_TZ = datetime.timezone(datetime.timedelta(hours=8))
+
+          def send_dingtalk(title, text):
+              """加签后调用钉钉机器人 webhook；actionCard 带「打开星河自律」按钮。"""
+              webhook = os.environ.get("DINGTALK_WEBHOOK", "")
+              secret = os.environ.get("DINGTALK_SECRET", "")
+              if not webhook or not secret:
+                  raise RuntimeError("缺少 DINGTALK_WEBHOOK / DINGTALK_SECRET secret")
+
+              timestamp = str(round(time.time() * 1000))
+              string_to_sign = f"{timestamp}\n{secret}"
+              digest = hmac.new(
+                  secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256
+              ).digest()
+              sign = urllib.parse.quote_plus(base64.b64encode(digest).decode("utf-8"))
+              url = f"{webhook}&timestamp={timestamp}&sign={sign}"
+
+              payload = {
+                  "msgtype": "actionCard",
+                  "actionCard": {
+                      "title": title,
+                      "text": text,
+                      "btnOrientation": "0",
+                      "btns": [{"title": "👉 打开星河自律", "actionURL": SITE_URL}],
+                  },
+              }
+              body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+              request = urllib.request.Request(
+                  url, data=body,
+                  headers={"Content-Type": "application/json; charset=utf-8"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as resp:
+                      raw = resp.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as exc:
+                  raise RuntimeError(f"钉钉 HTTP {exc.code}：{exc.read().decode('utf-8', 'replace')}")
+              except urllib.error.URLError as exc:
+                  raise RuntimeError(f"钉钉网络错误：{exc.reason}")
+              try:
+                  result = json.loads(raw or "{}")
+              except ValueError:
+                  raise RuntimeError(f"钉钉响应无法解析：{raw}")
+              if result.get("errcode") not in (0, None):
+                  raise RuntimeError(f"钉钉返回错误：{result}")
+              return result
+
+          content = (os.environ.get("CONTENT") or "").strip()
+          if not content:
+              print("notify-new 事件未携带 content，跳过")
+              raise SystemExit(0)
+
+          now = datetime.datetime.now(BJ_TZ)
+          title = "🌌 星河自律 · 实时更新"
+          text = "\n".join([
+              "## 🆕 你刚刚记录了新内容",
+              "",
+              f"> {content}",
+              "",
+              f"> 已记录于 {now.strftime('%Y-%m-%d %H:%M')}（+08:00）",
+              "",
+              f"[👉 打开星河自律]({SITE_URL})",
+              "",
+              "———　不按惯例 · RUN-form",
+          ])
+
+          try:
+              send_dingtalk(title, text)
+          except RuntimeError as exc:
+              print(f"发送失败：{exc}")
+              raise SystemExit(1)
+          print(f"实时推送成功：{content}")
+          PY
