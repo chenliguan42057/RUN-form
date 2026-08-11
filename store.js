@@ -728,6 +728,44 @@ function savePlans(list) {
  * @param {Object} fields 计划字段 {name, freq, time, day, enabled, icon, color, desc}
  * @returns {Object} 新建的完整计划对象（含 id）
  */
+/**
+ * 实时推送：手机新增一条计划/备忘后，立即发一条钉钉消息（不走定时）。
+ * 有 PAT 走直连，有代理地址走代理；两者皆无则静默跳过。
+ * @param {string} content 已格式化的内容描述
+ */
+async function notifyNew(content) {
+  const text = typeof content === "string" ? content : String(content);
+  if (!text) return;
+  const payload = { content: text, at: new Date().toISOString() };
+  const token = resolveToken();
+  if (token) {
+    try {
+      const resp = await fetch(REPO_DISPATCH_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/vnd.github+json",
+          "User-Agent": "runform-sync",
+        },
+        body: JSON.stringify({ event_type: "notify-new", client_payload: payload }),
+      });
+      if (!resp.ok) console.warn("notify-new 直连返回", resp.status);
+    } catch (e) {
+      console.error("notify-new 直连失败：", e);
+    }
+    return;
+  }
+  const proxy = resolveProxyUrl();
+  if (proxy) {
+    try {
+      await dispatchViaProxy("notify-new", payload);
+    } catch (e) {
+      console.error("notify-new 代理失败：", e);
+    }
+  }
+}
+
 function addPlan(fields) {
   const f = fields && typeof fields === "object" ? fields : {};
   const list = loadPlans();
@@ -748,6 +786,7 @@ function addPlan(fields) {
   };
   list.push(item);
   savePlans(list);
+  notifyNew(`${item.icon} ${item.name}（${item.time}）`);
   return item;
 }
 
@@ -2474,6 +2513,7 @@ function addMemo(fields) {
   };
   list.push(item);
   saveMemos(list);
+  notifyNew(`📝 ${item.title}${item.due ? `（${item.due}）` : ""}`);
   return item;
 }
 
