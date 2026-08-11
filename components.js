@@ -405,6 +405,7 @@ function uiPlanCard(planView) {
     `<div class="plan-card-body">` +
     `<h3 class="plan-card-title">${escapeHtml(v.name || "未命名")}</h3>` +
     (desc ? `<p class="plan-card-desc">${escapeHtml(desc)}</p>` : "") +
+    (v.image ? `<img class="plan-card-img" src="${escapeHtml(v.image)}" alt="${escapeHtml(v.name || "配图")}" loading="lazy" />` : "") +
     `<p class="plan-meta">⏭️ 下次提醒　${escapeHtml(nextText)}</p>` +
     streakHtml +
     `</div>` +
@@ -898,6 +899,10 @@ function uiStarBrief(star) {
     .filter(Boolean)
     .join("");
 
+  const imgHtml = s.image
+    ? `<img class="star-brief-img" src="${escapeHtml(s.image)}" alt="${escapeHtml(s.name || "配图")}" loading="lazy" />`
+    : "";
+
   return (
     `<div class="star-brief theme-${escapeHtml(theme.key)} lvl-${level}">` +
     `<span class="star-brief-icon" aria-hidden="true">${escapeHtml(s.icon || "🌟")}</span>` +
@@ -905,7 +910,7 @@ function uiStarBrief(star) {
     `<h3 class="star-brief-title">${escapeHtml(s.name || "未命名")}</h3>` +
     `<p class="star-brief-sub">${escapeHtml(s.label || "")}</p>` +
     `<div class="star-chips">${chips}</div>` +
-    `</div></div>`
+    `</div>${imgHtml}</div>`
   );
 }
 
