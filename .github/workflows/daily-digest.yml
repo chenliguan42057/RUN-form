@@ -1,0 +1,314 @@
+name: 钉钉每日待办汇总
+
+# 触发：每天北京 08:00（UTC 00:00）跑一次，把当天全部计划 + 待办备忘汇总成一条钉钉消息。
+#   ⚠️ GitHub schedule 不保证准时，高峰期可能晚 3~8 分钟，属正常。
+#   另外提供 workflow_dispatch，可手动触发（带 dry_run 演练 / force 强制重推）方便调试。
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "演练模式：只打印汇总内容，不发钉钉、不写状态"
+        type: boolean
+        required: false
+        default: false
+      force:
+        description: "强制推送（跳过「今日已推」去重）"
+        type: boolean
+        required: false
+        default: false
+
+# 同一时刻只允许一个汇总任务在跑，避免双跑把同一条晨报推两遍。
+concurrency:
+  group: dingtalk-daily-digest
+  cancel-in-progress: false
+
+# 需要写权限来提交 data/digest-state.json（「今日已推」去重落盘）
+permissions:
+  contents: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: 汇总今日待办并推送钉钉
+        id: send
+        # webhook 与 secret 均从 GitHub Secrets 读取，绝不写死真实值；
+        # workflow_dispatch 的输入统一走 env，避免 ${{ }} 直接拼进脚本造成注入。
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          python3 - <<'PY'
+          # -*- coding: utf-8 -*-
+          """每天汇总「当天计划 + 待办备忘」推一条钉钉晨报。"""
+          import calendar
+          import datetime
+          import hashlib
+          import hmac
+          import json
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          # ---------------------------- 常量 ----------------------------
+
+          PLANS_PATH = os.path.join("data", "plans.json")
+          MEMOS_PATH = os.path.join("data", "memos.json")
+          CHECKIN_PATH = os.path.join("data", "checkins.json")
+          STATE_PATH = os.path.join("data", "digest-state.json")
+          SITE_URL = "https://chenliguan42057.github.io/RUN-form/manage.html"
+          BJ_TZ = datetime.timezone(datetime.timedelta(hours=8))
+
+          WEEK_CN = ["一", "二", "三", "四", "五", "六", "日"]
+
+          # ---------------------------- 工具函数 ----------------------------
+
+          def i32(n):
+              n &= 0xFFFFFFFF
+              return n - 0x100000000 if n >= 0x80000000 else n
+
+          def hash_string(text):
+              h = 5381
+              for ch in str(text):
+                  h = i32(i32(h << 5) + h + ord(ch))
+              return abs(h)
+
+          def to_int(value, default=0):
+              try:
+                  return int(value)
+              except (TypeError, ValueError):
+                  return default
+
+          def parse_hhmm(text):
+              if isinstance(text, str) and ":" in text:
+                  head, _, tail = text.partition(":")
+                  hour = to_int(head, -1)
+                  minute = to_int(tail, -1)
+                  if 0 <= hour <= 23 and 0 <= minute <= 59:
+                      return hour, minute
+              return 8, 0
+
+          def load_json(path, fallback):
+              try:
+                  with open(path, encoding="utf-8") as fp:
+                      return json.load(fp)
+              except (OSError, ValueError) as exc:
+                  print(f"读取 {path} 失败（{exc}），使用兜底值")
+                  return fallback
+
+          def set_output(name, value):
+              path = os.environ.get("GITHUB_OUTPUT")
+              if not path:
+                  return
+              with open(path, "a", encoding="utf-8") as fp:
+                  fp.write(f"{name}={value}\n")
+
+          def matches_freq(plan, now):
+              """判断计划在 now 这一天是否应当出现（只看日期，不看时刻）。
+              周一=0 口径，与 Python weekday() 一致，无需换算。"""
+              freq = plan.get("freq")
+              day = to_int(plan.get("day"), 0)
+              if freq == "weekly":
+                  return now.weekday() == day
+              if freq == "monthly":
+                  last_day = calendar.monthrange(now.year, now.month)[1]
+                  return now.day == min(max(day, 1), last_day)
+              return True  # daily 及未知频率按每日
+
+          def send_dingtalk(title, text):
+              """加签后调用钉钉机器人 webhook；actionCard 带「打开星河自律」按钮。"""
+              webhook = os.environ.get("DINGTALK_WEBHOOK", "")
+              secret = os.environ.get("DINGTALK_SECRET", "")
+              if not webhook or not secret:
+                  raise RuntimeError("缺少 DINGTALK_WEBHOOK / DINGTALK_SECRET secret")
+
+              timestamp = str(round(time.time() * 1000))
+              string_to_sign = f"{timestamp}\n{secret}"
+              digest = hmac.new(
+                  secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256
+              ).digest()
+              sign = urllib.parse.quote_plus(base64.b64encode(digest).decode("utf-8"))
+              url = f"{webhook}&timestamp={timestamp}&sign={sign}"
+
+              payload = {
+                  "msgtype": "actionCard",
+                  "actionCard": {
+                      "title": title,
+                      "text": text,
+                      "btnOrientation": "0",
+                      "btns": [{"title": "👉 打开星河自律", "actionURL": SITE_URL}],
+                  },
+              }
+              body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+              request = urllib.request.Request(
+                  url, data=body,
+                  headers={"Content-Type": "application/json; charset=utf-8"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as resp:
+                      raw = resp.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as exc:
+                  raise RuntimeError(f"钉钉 HTTP {exc.code}：{exc.read().decode('utf-8', 'replace')}")
+              except urllib.error.URLError as exc:
+                  raise RuntimeError(f"钉钉网络错误：{exc.reason}")
+              try:
+                  result = json.loads(raw or "{}")
+              except ValueError:
+                  raise RuntimeError(f"钉钉响应无法解析：{raw}")
+              if result.get("errcode") not in (0, None):
+                  raise RuntimeError(f"钉钉返回错误：{result}")
+              return result
+
+          # ---------------------------- 主流程 ----------------------------
+
+          dry_run = str(os.environ.get("DRY_RUN", "")).strip().lower() == "true"
+          force = str(os.environ.get("FORCE", "")).strip().lower() == "true"
+
+          now = datetime.datetime.now(BJ_TZ)
+          today_key = now.strftime("%Y-%m-%d")
+          now_str = now.strftime("%Y-%m-%d %H:%M")
+
+          plans = load_json(PLANS_PATH, [])
+          if not isinstance(plans, list):
+              plans = []
+          plans = [p for p in plans if isinstance(p, dict)]
+
+          memos = load_json(MEMOS_PATH, [])
+          if not isinstance(memos, list):
+              memos = []
+          memos = [m for m in memos if isinstance(m, dict)]
+
+          # 轻量去重：今天已推过就跳过（防止 GitHub schedule 偶发双跑）
+          state = load_json(STATE_PATH, {})
+          if not isinstance(state, dict):
+              state = {}
+          if state.get("last") == today_key and not force:
+              print(f"[{now_str} +08:00] 今日晨报已推送过（{today_key}），跳过")
+              set_output("sent_any", "false")
+              raise SystemExit(0)
+
+          # 当天计划：enabled 且今天命中频率；按时间排序
+          today_plans = []
+          for plan in plans:
+              if not plan.get("enabled", True):
+                  continue
+              if not matches_freq(plan, now):
+                  continue
+              today_plans.append(plan)
+          today_plans.sort(key=lambda p: parse_hhmm(p.get("time")))
+
+          # 待办备忘：未完成且已到期（due <= now，含今天及逾期）
+          today_memos = []
+          for memo in memos:
+              if memo.get("done") is True:
+                  continue
+              due_str = str(memo.get("due") or "")
+              if not re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$", due_str):
+                  continue
+              if due_str > now_str:
+                  continue
+              today_memos.append(memo)
+
+          if not today_plans and not today_memos:
+              print(f"[{now_str} +08:00] 今日无计划也无待办备忘，跳过推送")
+              set_output("sent_any", "false")
+              raise SystemExit(0)
+
+          # 组装汇总消息
+          week_cn = WEEK_CN[now.weekday()]
+          title = f"🌌 星河自律 · 今日待办（{now.month}月{now.day}日 周{week_cn}）"
+          lines = [
+              f"## {title}",
+              "",
+              f"> 早上好。这是你 **{now.month} 月 {now.day} 日 周{week_cn}** 的待办清单。",
+              "",
+          ]
+
+          lines.append(f"**📋 今日计划（{len(today_plans)} 项）**")
+          lines.append("")
+          if today_plans:
+              for p in today_plans:
+                  icon = p.get("icon") or "🌟"
+                  name = p.get("name") or "未命名"
+                  desc = (p.get("desc") or "").strip()
+                  tail = f"　—　{desc}" if desc else ""
+                  lines.append(f"- {icon} **{name}**（{p.get('time', '08:00')}）{tail}")
+          else:
+              lines.append("- 今天没有固定计划，自由生长 🌿")
+          lines.append("")
+
+          lines.append(f"**📌 待办备忘（{len(today_memos)} 项）**")
+          lines.append("")
+          if today_memos:
+              for m in today_memos:
+                  due_str = str(m.get("due") or "")
+                  lines.append(f"- 📌 **{m.get('title') or '未命名'}**（到期 {due_str}）")
+          else:
+              lines.append("- 暂无待办备忘")
+          lines.append("")
+
+          lines += [
+              "> 一日之计在于晨，今天也要稳稳地走。",
+              "",
+              f"[👉 打开星河自律]({SITE_URL})",
+              "",
+              "———　不按惯例 · RUN-form",
+          ]
+          text = "\n".join(lines)
+
+          if dry_run:
+              print("===== DRY RUN：以下内容不会真的发送 =====")
+              print("title: " + title)
+              print(text)
+              print("=========================================")
+              set_output("sent_any", "false")
+              raise SystemExit(0)
+
+          try:
+              send_dingtalk(title, text)
+          except RuntimeError as exc:
+              print(f"发送失败：{exc}")
+              set_output("sent_any", "false")
+              raise SystemExit(1)
+
+          print(f"每日晨报发送成功：计划 {len(today_plans)} 项 · 备忘 {len(today_memos)} 项")
+
+          # 落盘「今日已推」
+          os.makedirs("data", exist_ok=True)
+          with open(STATE_PATH, "w", encoding="utf-8") as fp:
+              json.dump({"last": today_key, "updatedAt": int(time.time() * 1000)}, fp,
+                        ensure_ascii=False, indent=2)
+              fp.write("\n")
+          set_output("sent_any", "true")
+          PY
+
+      - name: 提交汇总送达状态
+        if: steps.send.outputs.sent_any == 'true'
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add data/digest-state.json
+          if git diff --cached --quiet; then
+            echo "状态无变化，跳过提交"
+          else
+            git commit -m "chore(digest): 记录每日晨报送达状态 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push || {
+              echo "推送冲突，rebase 后重试"
+              git pull --rebase --autostash
+              git push
+            }
+          fi
