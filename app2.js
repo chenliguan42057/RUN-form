@@ -862,10 +862,13 @@ if (patInput) {
   // 输入框失焦时把 token 落盘，省得用户填完忘了点同步
   patInput.addEventListener("change", () => {
     const value = patInput.value.trim();
-    if (value) {
-      safeSetItem(TOKEN_KEY, value);
+    if (!value) return;
+    if (!/^(ghp_|github_pat_)/.test(value)) {
+      showToast("Token 格式似乎不对（应以 ghp_ 或 github_pat_ 开头），已为你保存，请核对", "warning");
+    } else {
       showToast("Token 已保存到本机浏览器", "success");
     }
+    safeSetItem(TOKEN_KEY, value);
   });
 }
 
