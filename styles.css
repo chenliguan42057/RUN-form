@@ -976,6 +976,39 @@ a.btn {
   font-size: 0.88rem;
   word-break: break-word;
 }
+.plan-card-img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin: 10px 0 0;
+  background: rgba(var(--t-glow), 0.06);
+}
+.image-upload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.image-upload .input-file {
+  width: 100%;
+}
+.image-preview img {
+  display: block;
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--t-glow), 0.25);
+}
+.star-brief-img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-top: 12px;
+}
 .streak-badge {
   display: inline-block;
   margin-top: 10px;
