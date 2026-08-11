@@ -109,6 +109,9 @@ let selectedIcon = "🌟";
 let selectedTheme = "";
 /** 当前界面偏好快照 */
 let prefs = loadPrefs();
+/** 图片上传：待上传的本地文件 / 已解析出的云端 URL（二者互斥） */
+let pendingImageFile = null;
+let pendingImageUrl = "";
 /** 最近一次 buildStarMap() 的结果，供编辑舱取星体简报 */
 let skyMap = { stars: [], links: [], total: 0, lit: 0, dim: 0 };
 
@@ -221,6 +224,8 @@ function resetPlanForm() {
   editingId = null;
   selectedIcon = "🌟";
   selectedTheme = "";
+  pendingImageFile = null;
+  pendingImageUrl = "";
 
   if (planNameInput) planNameInput.value = "";
   if (planDescInput) planDescInput.value = "";
@@ -232,6 +237,8 @@ function resetPlanForm() {
   if (planSubmitBtn) planSubmitBtn.textContent = "缔结";
   if (planCancelLink) planCancelLink.hidden = false;
   if (planDangerZone) planDangerZone.hidden = true;
+  // 清理配图选择
+  clearPlanImageUI();
 
   renderIconPicker();
   renderThemePicker();
@@ -264,6 +271,11 @@ function fillPlanForm(plan) {
   if (planSubmitBtn) planSubmitBtn.textContent = "保存契约";
   if (planCancelLink) planCancelLink.hidden = false;
   if (planDangerZone) planDangerZone.hidden = false;
+
+  // 配图：进入编辑模式时回填已存在的图片（不重新上传，除非用户换了文件）
+  pendingImageFile = null;
+  pendingImageUrl = plan.image && typeof plan.image === "string" ? plan.image : "";
+  showPlanImagePreview(pendingImageUrl);
 
   renderIconPicker();
   renderThemePicker();
@@ -305,6 +317,83 @@ function collectPlanFields() {
   // 只有用户明确选了颜色才带 color 字段，否则交给 store 按 id 哈希自动分配
   if (selectedTheme !== "") fields.color = selectedTheme;
   return fields;
+}
+
+// ============================ 配图上传 ============================
+
+/** 清空配图 UI（输入框 / 预览 / 移除按钮）。不改动 pendingImage* 状态。 */
+function clearPlanImageUI() {
+  const input = $("plan-image");
+  const preview = $("plan-image-preview");
+  const clear = $("plan-image-clear");
+  if (input) input.value = "";
+  if (preview) {
+    preview.hidden = true;
+    preview.innerHTML = "";
+  }
+  if (clear) clear.hidden = true;
+}
+
+/** 根据一个图片 URL 渲染预览（编辑模式回填用）。 */
+function showPlanImagePreview(url) {
+  const preview = $("plan-image-preview");
+  const clear = $("plan-image-clear");
+  if (!url) {
+    clearPlanImageUI();
+    return;
+  }
+  if (preview) {
+    preview.hidden = false;
+    preview.innerHTML = `<img src="${escapeHtml(url)}" alt="配图预览" />`;
+  }
+  if (clear) clear.hidden = false;
+}
+
+/**
+ * 把用户选择的图片文件压缩成 JPEG base64（去掉 data: 前缀）。
+ * 先缩放到最长边 <= maxDim，控制体积，避免仓库被大图撑爆。
+ * @param {File} file
+ * @param {number} [maxDim=1280]
+ * @param {number} [quality=0.82]
+ * @returns {Promise<string>} base64（不含前缀）
+ */
+function fileToResizedBase64(file, maxDim = 1280, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("图片解析失败"));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        const comma = dataUrl.indexOf(",");
+        resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * 解析当前表单的配图：优先上传待传文件，否则回退已存在的云端 URL。
+ * @returns {Promise<string>} 图片 URL（空串表示无图）
+ */
+async function resolvePlanImage() {
+  if (pendingImageFile) {
+    const b64 = await fileToResizedBase64(pendingImageFile);
+    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+    return await uploadImageToRepo(b64, name);
+  }
+  return pendingImageUrl || "";
 }
 
 // ============================ 弹层：星体编辑舱 ============================
@@ -605,10 +694,19 @@ if (themeSlot) {
 }
 
 if (planForm) {
-  planForm.addEventListener("submit", (event) => {
+  planForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const fields = collectPlanFields();
     if (!fields) return;
+
+    // 解析配图：有图则上传（或复用已存在 URL），失败仅警告、仍继续缔结
+    try {
+      fields.image = await resolvePlanImage();
+    } catch (imgErr) {
+      console.error("配图处理失败：", imgErr);
+      showToast(imgErr.message || "配图上传失败，已忽略图片", "warning");
+      fields.image = pendingImageUrl || "";
+    }
 
     if (editingId) {
       // 编辑模式：只打补丁，不动 id / createdAt
@@ -630,6 +728,35 @@ if (planForm) {
       showToast("⚠️ 未配置 Token，计划已存本机但未同步到云端/钉钉", "warning");
     }
     scheduleAutoSync();
+  });
+}
+
+// 配图：选择文件即预览，点击「移除」清空
+const planImageInput = $("plan-image");
+const planImageClear = $("plan-image-clear");
+if (planImageInput) {
+  planImageInput.addEventListener("change", () => {
+    const file = planImageInput.files && planImageInput.files[0];
+    if (!file) {
+      pendingImageFile = null;
+      clearPlanImageUI();
+      return;
+    }
+    pendingImageFile = file;
+    pendingImageUrl = ""; // 新文件会重新上传，旧 URL 失效
+    const reader = new FileReader();
+    reader.onload = () => {
+      showPlanImagePreview(reader.result);
+    };
+    reader.onerror = () => showToast("图片读取失败", "warning");
+    reader.readAsDataURL(file);
+  });
+}
+if (planImageClear) {
+  planImageClear.addEventListener("click", () => {
+    pendingImageFile = null;
+    pendingImageUrl = "";
+    clearPlanImageUI();
   });
 }
 
@@ -857,7 +984,38 @@ if (memoList) {
 
 if (syncBtn) {
   syncBtn.addEventListener("click", () => {
-    syncToRepo();
+    syncToRepo().then(updateLastSyncLine).catch(updateLastSyncLine);
+  });
+}
+
+// 「检查云端」：best-effort 拉取 data/last-sync.json，对比本地时间差
+const checkCloudSync = $("check-cloud-sync");
+if (checkCloudSync) {
+  checkCloudSync.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const line = $("last-sync-time");
+    if (line) line.textContent = "检查中…";
+    try {
+      const resp = await fetch("data/last-sync.json", { cache: "no-store" });
+      if (!resp.ok) {
+        if (line) line.textContent = "云端尚无同步记录";
+        return;
+      }
+      const data = await resp.json();
+      const cloudTs = data && (data.updatedAt || data.plans || data.memos);
+      const localTs = loadLastSync();
+      if (!cloudTs) {
+        if (line) line.textContent = "云端尚无同步记录";
+      } else {
+        const cloudMs = Number(cloudTs) || 0;
+        const localMs = Number(localTs) || 0;
+        const diff = Math.abs(cloudMs - localMs);
+        const tip = diff < 5 * 60 * 1000 ? "（本地与云端一致 ✓）" : "（本地与云端有差异，可再点一次同步）";
+        if (line) line.textContent = formatSyncTime(cloudMs) + tip;
+      }
+    } catch (err) {
+      if (line) line.textContent = "无法连接云端（国内访问 GitHub 可能受限）";
+    }
   });
 }
 
@@ -1241,6 +1399,34 @@ window.addEventListener("storage", (event) => {
  * 页面入口：注入星空与导航，回填数据，绑定完毕后做一次进场动画。
  * @returns {void}
  */
+/**
+ * 把毫秒时间戳格式化成「今天 HH:MM / 昨天 HH:MM / M月D日 HH:MM」。
+ * @param {number} ts 毫秒时间戳
+ * @returns {string}
+ */
+function formatSyncTime(ts) {
+  const n = Number(ts) || 0;
+  if (!n) return "尚未同步";
+  const d = new Date(n);
+  const now = new Date();
+  const pad = (x) => String(x).padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const sameDay = d.toDateString() === now.toDateString();
+  const yest = new Date(now.getTime() - 86400000);
+  if (sameDay) return `今天 ${hm}`;
+  if (d.toDateString() === yest.toDateString()) return `昨天 ${hm}`;
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+}
+
+/**
+ * 刷新「最近同步」状态行（读本地 LAST_SYNC_KEY）。
+ * @returns {void}
+ */
+function updateLastSyncLine() {
+  const el = $("last-sync-time");
+  if (el) el.textContent = formatSyncTime(loadLastSync());
+}
+
 function init() {
   applyMotionPref();
   uiStarfield(document.body);
@@ -1256,6 +1442,7 @@ function init() {
   renderPrefs();
   resetPlanForm();
   renderAll();
+  updateLastSyncLine();
 
   // 语录库总条数：先显示本地梵高兜底数，异步换成真实大库条数
   const quoteTotalCount = document.getElementById("quote-total-count");
@@ -1276,6 +1463,11 @@ function init() {
     bootV6();
   } catch (err) {
     console.error("v6 装配异常（不影响星图页）：", err);
+  }
+
+  // 从首页「＋ 缔结新星」跳过来（manage.html#add）时，自动打开缔结弹层
+  if (location.hash === "#add") {
+    setTimeout(() => openStarModal(null), 0);
   }
 }
 
