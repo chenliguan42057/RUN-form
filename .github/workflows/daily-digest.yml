@@ -51,6 +51,7 @@ jobs:
           python3 - <<'PY'
           # -*- coding: utf-8 -*-
           """每天汇总「当天计划 + 待办备忘」推一条钉钉晨报。"""
+          import base64
           import calendar
           import datetime
           import hashlib
