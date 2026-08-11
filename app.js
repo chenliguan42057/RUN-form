@@ -480,7 +480,7 @@ function loadModule(name) {
         loadModule._warned = true;
         try {
           if (typeof showToast === "function") {
-            showToast("有个小模块没加载上，功能暂不可用，刷新或联网后重试 ✦", "warn");
+            showToast("有个小模块没加载上，功能暂不可用，刷新或联网后重试 ✦", "warning");
           }
         } catch (e) {
           /* 忽略：提示本身失败不能阻断 */
@@ -911,10 +911,10 @@ manualCheckBtn.addEventListener("click", () => {
   scheduleAutoSync();
 });
 
-// 从别的标签页改了数据（打卡 / 计划 / 偏好）时，本页跟着刷新
+// 从别的标签页改了数据（打卡 / 计划 / 偏好 / 备忘）时，本页跟着刷新
 window.addEventListener("storage", (e) => {
   if (!e.key) return;
-  if ([PLAN_KEY, CHECKIN_KEY, PREFS_KEY].indexOf(e.key) < 0) return;
+  if ([PLAN_KEY, CHECKIN_KEY, PREFS_KEY, MEMO_KEY].indexOf(e.key) < 0) return;
   prefs = loadPrefs();
   applyMotionPref();
   renderAll();
