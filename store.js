@@ -739,7 +739,9 @@ async function notifyNew(content) {
   const text = typeof content === "string" ? content : String(content);
   if (!text) return;
   const payload = { content: text, at: new Date().toISOString() };
-  const token = resolveToken();
+  // 优先走无令牌代理（部署后零配置）；无代理才用本地 Token
+  const proxy = resolveProxyUrl();
+  const token = proxy ? null : resolveToken();
   if (token) {
     try {
       const resp = await fetch(REPO_DISPATCH_URL, {
@@ -759,7 +761,6 @@ async function notifyNew(content) {
     }
     return;
   }
-  const proxy = resolveProxyUrl();
   if (proxy) {
     try {
       await dispatchViaProxy("notify-new", payload);
@@ -2075,25 +2076,26 @@ async function dispatchSync(plans, checkins, token) {
  * @returns {void}
  */
 function scheduleAutoSync() {
-  // 默认走本地 Token；没有 Token 但有代理地址时回退走代理；两者皆无则静默跳过
-  const token = resolveToken();
-  const proxy = !token && resolveProxyUrl();
-  if (!token && !proxy) return;
+  // 优先走无令牌代理：部署 Cloudflare Worker 后，任何设备都【零配置】即可同步；
+  // 仅当没有配置代理地址时才回退到本地 Token（每个设备手动粘贴）。
+  const proxy = resolveProxyUrl();
+  const token = proxy ? null : resolveToken();
+  if (!proxy && !token) return;
 
   clearTimeout(autoSyncTimer);
   autoSyncTimer = setTimeout(async () => {
     // 延时到点后重新取一次，保证同步的是最终状态
-    const tk = resolveToken();
     const px = resolveProxyUrl();
+    const tk = px ? null : resolveToken();
     try {
-      if (tk) {
-        await dispatchSync(loadPlans(), loadCheckins(), tk);
-      } else if (px) {
+      if (px) {
         await dispatchViaProxy("sync-checkins", {
           plans: loadPlans(),
           checkins: loadCheckins(),
           tombstones: tombstoneMap(),
         });
+      } else if (tk) {
+        await dispatchSync(loadPlans(), loadCheckins(), tk);
       }
       markLocalSync();
     } catch (err) {
@@ -2130,10 +2132,11 @@ function loadLastSync() {
  * @returns {Promise<void>}
  */
 async function syncToRepo() {
-  const token = resolveToken();
+  // 优先走无令牌代理（部署后零配置）；无代理才用本地 Token
   const proxy = resolveProxyUrl();
-  if (!token && !proxy) {
-    showToast("请先在管理页填写 Token，或填入同步代理地址", "error");
+  const token = proxy ? null : resolveToken();
+  if (!proxy && !token) {
+    showToast("请先部署同步代理，或在管理页填写 Token", "error");
     return;
   }
 
