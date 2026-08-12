@@ -103,7 +103,7 @@ const DAY_MS = 86400000;
  * 部署后由我填入（见 cloudflare/ 目录）；留空则回退读 localStorage 里用户手动填的覆盖。
  * PAT 只存在于 Worker 的【密钥】中，站点永不持有 Token，手机端零配置即可同步。
  */
-const SYNC_PROXY_URL = "";
+const SYNC_PROXY_URL = "https://runform-sync.3341644038.workers.dev";
 /** 代理共享密钥：与 Worker 的 APP_KEY 完全一致，仅用于挡掉陌生人滥用，非机密、可公开 */
 const SYNC_APP_KEY = "runform-shared-9k2d";
 /** localStorage 中「用户手动填写的代理地址覆盖」键（管理页可填，优先级高于 SYNC_PROXY_URL） */
