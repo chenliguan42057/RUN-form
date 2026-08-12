@@ -6,7 +6,9 @@ compatibility_date = "2024-09-23"
 [vars]
 GH_OWNER = "chenliguan42057"
 GH_REPO = "RUN-form"
-ALLOWED_ORIGIN = "https://chenliguan42057.github.io"
+# 设为 * 以支持「任何设备 / 任何软件」打开都能同步（本地 file://、微信内置浏览器等
+# Origin 为 null 或各异的情况也能通过 CORS）。滥用防护由 APP_KEY 共享密钥承担。
+ALLOWED_ORIGIN = "*"
 ALLOWED_EVENTS = "sync-checkins,sync-memos,notify-new"
 
 # ===== 部署前必须设置的【密钥】（不要写进本文件 / 仓库）=====
