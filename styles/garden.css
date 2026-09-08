@@ -1,0 +1,59 @@
+/**
+ * styles/garden.css —— 花朵 5 阶段 / 枯萎灰化
+ * 归属：B 组（T03）。只用 tokens.css 变量；动画只动 transform / opacity。
+ */
+
+.g-garden {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g-gap-md);
+  justify-content: center;
+  padding: var(--g-gap-sm) 0;
+  min-height: 80px;
+}
+
+.g-flower {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 84px;
+  text-align: center;
+}
+
+.g-flower__bloom {
+  font-size: 34px;
+  line-height: 1;
+  will-change: transform;
+  transform-origin: 50% 100%;
+  transition: transform var(--g-dur-mid) var(--g-ease);
+}
+.g-flower__label {
+  font-size: var(--g-fs-xs);
+  color: var(--g-text-soft);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 阶段：种子 → 发芽 → 花苞 → 初开 → 盛开 */
+.g-flower--s0 .g-flower__bloom { font-size: 22px; opacity: 0.7; }
+.g-flower--s1 .g-flower__bloom { font-size: 26px; }
+.g-flower--s2 .g-flower__bloom { font-size: 30px; }
+.g-flower--s3 .g-flower__bloom { font-size: 34px; }
+.g-flower--s4 .g-flower__bloom {
+  font-size: 40px;
+  animation: g-flower-sway 4s ease-in-out infinite;
+}
+@keyframes g-flower-sway {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg); }
+}
+
+.g-flower.is-withered .g-flower__bloom {
+  filter: grayscale(1);
+  opacity: 0.45;
+  animation: none;
+}
+.g-flower.is-withered .g-flower__label { color: var(--g-text-soft); opacity: 0.6; }
