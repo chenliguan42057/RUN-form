@@ -1,0 +1,139 @@
+name: 同步状态数据（精灵/花园/券/档案）
+
+# 前端 store.js 在每次档案变更后会 dispatch 两种事件：
+#   · sync-checkins  → 计划 + 打卡台账（见 sync.yml）
+#   · sync-state     → 精灵 / 花园 / 券 / 档案（本文件）
+#
+# 钉钉统一推送工作流（dingtalk-push.yml）只读这些文件，因此本工作流必须把
+# profile.json / pet-state.json / garden-state.json / coupons.json 落到仓库，
+# 推送才能拿到用户的真实配置与连续天数台账。
+#
+# ⚠️ 契约（两边必须同时改）：client_payload = { pet, garden, coupons, profile, tombstones }
+#   与 dingtalk-push.yml 读取的文件名完全一致：
+#     profile.json / pet-state.json / garden-state.json / coupons.json / last-sync.json
+
+on:
+  repository_dispatch:
+    types: [sync-state]
+
+permissions:
+  contents: write
+
+# 与 sync-checkins 分开排队，避免两个 job 同时写 data/ 互相覆盖
+concurrency:
+  group: sync-state
+  cancel-in-progress: false
+
+jobs:
+  sync-state:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: 合并写入状态数据（profile / pet / garden / coupons）
+        env:
+          PROFILE_JSON: ${{ toJson(github.event.client_payload.profile) }}
+          PET_JSON: ${{ toJson(github.event.client_payload.pet) }}
+          GARDEN_JSON: ${{ toJson(github.event.client_payload.garden) }}
+          COUPONS_JSON: ${{ toJson(github.event.client_payload.coupons) }}
+          TOMBSTONES_JSON: ${{ toJson(github.event.client_payload.tombstones) }}
+        run: |
+          python3 - <<'PY'
+          import os, json, time
+          now = int(time.time() * 1000)
+
+          def parse(env_name):
+              raw = os.environ.get(env_name, "null")
+              try:
+                  return json.loads(raw)
+              except Exception:
+                  return None
+
+          def read_repo(path, default):
+              try:
+                  with open(path, encoding="utf-8") as fp:
+                      return json.load(fp)
+              except (OSError, ValueError):
+                  return default
+
+          def merge_obj(repo, incoming):
+              """整对象合并：前端（incoming）通常更新，updatedAt 较大者胜。"""
+              if not isinstance(incoming, dict):
+                  return repo if repo is not None else {}
+              if not isinstance(repo, dict):
+                  return incoming
+              r_ts = repo.get("updatedAt") or 0
+              i_ts = incoming.get("updatedAt") or 0
+              return incoming if i_ts >= r_ts else repo
+
+          def merge_coupons(repo, incoming, dead):
+              by_id = {}
+              for c in (repo if isinstance(repo, list) else []):
+                  if isinstance(c, dict) and c.get("id"):
+                      by_id[c["id"]] = c
+              for c in (incoming if isinstance(incoming, list) else []):
+                  if isinstance(c, dict) and c.get("id"):
+                      by_id[c["id"]] = c
+              return [by_id[k] for k in by_id if str(k) not in dead]
+
+          def parse_tomb(raw, kind):
+              if not isinstance(raw, dict):
+                  return {}
+              val = raw.get(kind)
+              if isinstance(val, dict):
+                  return {str(k): v for k, v in val.items()}
+              if isinstance(val, list):
+                  return {str(x): 0 for x in val if x}
+              return {}
+
+          profile = parse("PROFILE_JSON") or {}
+          pet = parse("PET_JSON") or {}
+          garden = parse("GARDEN_JSON") or {}
+          coupons_in = parse("COUPONS_JSON") if isinstance(parse("COUPONS_JSON"), list) else []
+          tomb = parse("TOMBSTONES_JSON") or {}
+          dead = set(parse_tomb(tomb, "coupons").keys())
+
+          os.makedirs("data", exist_ok=True)
+          merged_profile = merge_obj(read_repo("data/profile.json", {}), profile)
+          merged_pet = merge_obj(read_repo("data/pet-state.json", {}), pet)
+          merged_garden = merge_obj(read_repo("data/garden-state.json", {}), garden)
+          merged_coupons = merge_coupons(read_repo("data/coupons.json", []), coupons_in, dead)
+
+          with open("data/profile.json", "w", encoding="utf-8") as f:
+              json.dump(merged_profile, f, ensure_ascii=False, indent=2)
+          with open("data/pet-state.json", "w", encoding="utf-8") as f:
+              json.dump(merged_pet, f, ensure_ascii=False, indent=2)
+          with open("data/garden-state.json", "w", encoding="utf-8") as f:
+              json.dump(merged_garden, f, ensure_ascii=False, indent=2)
+          with open("data/coupons.json", "w", encoding="utf-8") as f:
+              json.dump(merged_coupons, f, ensure_ascii=False, indent=2)
+
+          print("sync-state：写入 profile / pet / garden / %d 张券（累积墓碑 %d 条）"
+                % (len(merged_coupons), len(dead)))
+
+          # 同步最近同步状态（供前端回读）
+          last_sync = read_repo("data/last-sync.json", {})
+          if not isinstance(last_sync, dict):
+              last_sync = {}
+          last_sync["state"] = now
+          last_sync["status"] = "ok"
+          last_sync["updatedAt"] = now
+          with open("data/last-sync.json", "w", encoding="utf-8") as f:
+              json.dump(last_sync, f, ensure_ascii=False, indent=2)
+          PY
+
+      - name: 提交并推送
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add data/profile.json data/pet-state.json data/garden-state.json data/coupons.json data/last-sync.json
+          if git diff --cached --quiet; then
+            echo "无变更，跳过提交"
+          else
+            git commit -m "chore: 同步状态数据 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push || { git pull --rebase --autostash; git push; }
+          fi
