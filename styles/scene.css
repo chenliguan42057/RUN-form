@@ -1,0 +1,178 @@
+/**
+ * styles/scene.css —— 时段天空 / 云 / 彩虹 / 山丘 / 草地 / 蝴蝶 / 花瓣 / 萤火虫 / 天气覆盖
+ * 归属：B 组（T03）。只用 tokens.css 变量；动画只动 transform / opacity。
+ */
+
+.g-scene {
+  position: fixed;
+  inset: 0;
+  z-index: var(--g-z-scene);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.g-scene__sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, var(--g-sky-from) 0%, var(--g-sky-to) 100%);
+  transition: background var(--g-dur-slow) linear;
+}
+
+.g-scene__hills {
+  position: absolute;
+  left: -5%;
+  right: -5%;
+  bottom: -2%;
+  height: 26vh;
+  background: var(--g-hill);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  opacity: 0.85;
+}
+.g-scene__grass {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14vh;
+  background: linear-gradient(180deg, var(--g-grass-from), var(--g-grass-to));
+}
+
+.g-scene__sun {
+  position: absolute;
+  top: 8%;
+  right: 12%;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #fff6c2 0%, #ffe07a 60%, rgba(255, 224, 122, 0) 100%);
+  filter: blur(1px);
+}
+html[data-period="night"] .g-scene__sun {
+  background: radial-gradient(circle at 50% 50%, #fdfdff 0%, #cfd6ff 55%, rgba(207, 214, 255, 0) 100%);
+  box-shadow: 0 0 24px rgba(207, 214, 255, 0.6);
+}
+
+.g-cloud {
+  position: absolute;
+  width: 120px;
+  height: 38px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 40px;
+  filter: blur(2px);
+  opacity: 0.9;
+  animation: g-cloud-drift var(--cloud-dur, 40s) linear infinite;
+  animation-delay: var(--cloud-delay, 0s);
+}
+.g-cloud::before,
+.g-cloud::after {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+.g-cloud::before { width: 60px; height: 60px; top: -26px; left: 18px; }
+.g-cloud::after { width: 44px; height: 44px; top: -16px; left: 64px; }
+
+@keyframes g-cloud-drift {
+  from { transform: translateX(-30vw); }
+  to { transform: translateX(120vw); }
+}
+
+.g-scene__rainbow {
+  position: absolute;
+  top: 6%;
+  left: 50%;
+  width: 300px;
+  height: 150px;
+  transform: translateX(-50%);
+  border-radius: 300px 300px 0 0;
+  background: linear-gradient(180deg,
+    rgba(255, 182, 193, 0.5), rgba(255, 230, 109, 0.45), rgba(152, 251, 152, 0.4),
+    rgba(135, 206, 235, 0.35), rgba(230, 230, 250, 0.3));
+  -webkit-mask: radial-gradient(circle at 50% 100%, transparent 58%, #000 60%);
+  mask: radial-gradient(circle at 50% 100%, transparent 58%, #000 60%);
+  opacity: 0.7;
+}
+
+.g-butterfly {
+  position: absolute;
+  left: 0;
+  top: var(--bf-top, 30%);
+  font-size: 20px;
+  will-change: transform;
+  animation: g-butterfly-fly var(--bf-dur, 22s) linear infinite;
+  animation-delay: var(--bf-delay, 0s);
+}
+@keyframes g-butterfly-fly {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(18vw, -6vh) rotate(12deg); }
+  50% { transform: translate(40vw, 4vh) rotate(-10deg); }
+  75% { transform: translate(64vw, -4vh) rotate(8deg); }
+  100% { transform: translate(100vw, 2vh) rotate(0deg); }
+}
+
+.g-petal {
+  position: absolute;
+  top: -6%;
+  font-size: 16px;
+  will-change: transform, opacity;
+  animation: g-petal-fall var(--pt-dur, 12s) linear infinite;
+  animation-delay: var(--pt-delay, 0s);
+}
+@keyframes g-petal-fall {
+  0% { transform: translate(0, -4vh) rotate(0deg); opacity: 0.9; }
+  100% { transform: translate(var(--pt-x, 0), 104vh) rotate(320deg); opacity: 0.5; }
+}
+
+.g-firefly {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff6a8;
+  box-shadow: 0 0 8px 2px rgba(255, 246, 168, 0.8);
+  will-change: opacity;
+  animation: g-firefly-tw var(--ff-dur, 3s) ease-in-out infinite;
+  animation-delay: var(--ff-delay, 0s);
+}
+@keyframes g-firefly-tw {
+  0%, 100% { opacity: 0.2; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-6px); }
+}
+
+.g-particle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.g-petal-rain {
+  position: absolute;
+  top: -6%;
+  font-size: 16px;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: g-petal-fall var(--pr-dur, 3s) linear forwards;
+}
+
+.g-scene__weather {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: background var(--g-dur-slow) linear, opacity var(--g-dur-slow) linear;
+  opacity: 0;
+}
+.g-scene__weather--clear { opacity: 0; }
+.g-scene__weather--cloudy { background: rgba(120, 130, 150, 0.16); opacity: 1; }
+.g-scene__weather--gray { background: rgba(90, 96, 110, 0.30); opacity: 1; }
+.g-scene__weather--fallen { background: rgba(70, 64, 60, 0.42); opacity: 1; }
+.g-scene__weather--bw { background: rgba(40, 40, 48, 0.5); opacity: 1; }
+html[data-weather="bw"] .g-scene__sky,
+html[data-weather="bw"] .g-scene__hills,
+html[data-weather="bw"] .g-scene__grass,
+html[data-weather="bw"] .g-scene__rainbow { filter: grayscale(1); }
+html[data-period="night"] .g-scene__hills { background: #2c3a63; }
+html[data-period="night"] .g-scene__grass { background: linear-gradient(180deg, #243b55, #1b2a5b); }
+html[data-period="night"] .g-scene__rainbow { opacity: 0.25; }
