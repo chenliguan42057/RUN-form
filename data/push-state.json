@@ -1,0 +1,34 @@
+{
+  "sent": {
+    "2026-09-08|night": {
+      "sentAt": 1788874201096,
+      "targetAt": 1788874200000,
+      "lateSec": 1,
+      "variant": 0,
+      "manual": false
+    }
+  },
+  "history": [
+    {
+      "dayKey": "2026-09-08",
+      "slot": "night",
+      "lateSec": 1,
+      "sentAt": 1788874201096
+    }
+  ],
+  "settle": {},
+  "streak": {
+    "current": 0,
+    "best": 0,
+    "lastPerfectDay": null,
+    "brokeDays": 0,
+    "brokenStreak": 0
+  },
+  "calibration": {
+    "avgLateMin": 0.02,
+    "suggestedLead": 30,
+    "samples": 1,
+    "updatedAt": 1788874201096
+  },
+  "updatedAt": 1788874201096
+}
