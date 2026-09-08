@@ -14,11 +14,11 @@
 
   var currentIcon = "🌟";
 
-  var TEMPLATES = {
+  var TEMPLATES = RF.content.get("planTemplates", {
     morning: { name: "晨间三件套：温水+拉伸", icon: "🌅", freq: "daily", time: "07:30", core: true, difficulty: 2, estMinutes: 10 },
     health: { name: "健康基础：运动", icon: "💪", freq: "daily", time: "08:00", core: true, difficulty: 4, estMinutes: 20 },
     study: { name: "学习专注：读书", icon: "📚", freq: "daily", time: "21:00", core: true, difficulty: 3, estMinutes: 15 }
-  };
+  });
 
   function $(id) { return document.getElementById(id); }
 
