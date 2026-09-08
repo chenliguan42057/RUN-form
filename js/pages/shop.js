@@ -13,11 +13,11 @@
 
   var selected = {}; // couponId -> true
 
-  var SHOP_ITEMS = [
+  var SHOP_ITEMS = RF.content.get("shop.items", [
     { key: "timeDew", name: "时光露水", emoji: "💧", cost: 300, desc: "唤醒沉睡/ faded 的小光" },
     { key: "memoryFlower", name: "回忆之花", emoji: "🌸", cost: 800, desc: "召回已离开的小光（亲密度保留）" },
     { key: "doubleHappy", name: "双倍开心", emoji: "✨", cost: 200, desc: "下次打卡积分翻倍" }
-  ];
+  ]);
 
   function $(id) { return document.getElementById(id); }
 
