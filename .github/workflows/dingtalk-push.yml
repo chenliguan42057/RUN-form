@@ -1,0 +1,1181 @@
+name: 阳光花园 · 钉钉统一推送
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T05 前半 · 统一推送工作流（目标时间 + 提前量）
+#
+# 【解决什么痛点】
+#   1) 老迟到：GitHub Actions 的 schedule 天生不准点，实测延迟 15~45 分钟，高峰期还会跳过。
+#      这是平台限制，改 cron 表达式救不回来。
+#   2) 太烦：v1 有 6 个 workflow 各推各的。v2 收敛成【本文件这 1 个】，
+#      默认只开 4 个槽（07:00 / 21:30 / 22:30 / 00:00），12:00 与 18:00 默认关。
+#
+# 【核心算法 · 目标时间 + 提前量】
+#   用户只关心「我希望几点收到」，系统倒推 GitHub 的触发时刻：
+#       fireAt = targetAt − leadMinutes          ← GitHub「应该」在这一刻触发
+#       deliverAt = targetAt                     ← 消息「应该」在这一刻送达
+#   cron 固定 */10（每 10 分钟一次，UTC），把「该不该发」交给脚本判定，因为
+#   GitHub 不允许在运行时改 cron。窗口判定（脚本内 PRE_WINDOW_MIN / POST_WINDOW_MIN）：
+#       now < fireAt − 5min            → 还没进窗口，跳过，等下一次 cron
+#       fireAt − 5min ≤ now < targetAt → 补睡到 targetAt 再发（GitHub 没延迟 / 延迟没吃满提前量）
+#       targetAt ≤ now ≤ targetAt+25min→ 立即发（GitHub 迟到了，迟到多少记多少）
+#       now > targetAt + 25min         → 放弃今天这一条（宁可不发，也不要半夜弹「早安」）
+#
+#   ⚠️ 与设计文档 §7.2 的一处有意偏离（已评估，理由如下）：
+#       §7.2 字面写的是「补睡到 fireAt 就发」。但那样做的话，GitHub 不延迟时消息会在
+#       targetAt − leadMinutes（默认 06:30）就送达 —— 用户要 07:00，却 06:30 收到，
+#       而且 lateSec 恒为 −30 分钟，§7.3 的校准公式 suggestedLead = lead + avgLateMin
+#       会一路收敛到 0，形成「提前量 0 → 又变迟到 → 再加回来」的振荡。
+#       所以本实现把 fireAt 只当作「窗口开门时刻」，真正送达时刻一律对齐 targetAt：
+#         · GitHub 准时/小延迟 → 补睡到 targetAt，lateSec ≈ 0（准点送达）
+#         · GitHub 延迟超过提前量 → 立刻发，lateSec > 0（诚实记录迟到）
+#       这样 lateSec 恒 ≥ 0，校准公式收敛到稳定不动点。
+#       想退回 §7.2 字面行为：在 profile.push 里设 "sleepToTarget": false。
+#       顺带：窗口右端从「fireAt+25min」改为「targetAt+25min」，否则窗口在 targetAt
+#       前 5 分钟就关了，GitHub 真迟到的情况一条都兜不住。
+#
+# 【幂等】data/push-state.json 的 sent["YYYY-MM-DD|slotKey"] 存在即跳过。
+#
+# 【校准闭环】每次发送后记录 lateSec = sentAt − targetAt（相对【用户目标时间】，不是 fireAt）。
+#   前端管理页读它算「平均迟到」并给出建议提前量。字段结构见下，改动必须同步前端。
+#
+# ── data/push-state.json 字段契约（仅本工作流写，前端只读）──────────────────
+#   {
+#     "sent":    { "<dayKey>|<slotKey>": {          # 幂等键
+#                    "sentAt":  <ms>,               # 实际发送时刻
+#                    "targetAt":<ms>,               # 用户希望收到的时刻
+#                    "lateSec": <int>,              # sentAt − targetAt，正常 ≥ 0（准点≈0）
+#                    "variant": <int>,              # 命中的文案变体下标
+#                    "manual":  <bool>              # 是否手动触发（手动的不进校准样本）
+#                 } },
+#     "history": [ { "dayKey", "slot", "lateSec", "sentAt" } ],   # 最近 14 条，按时间升序
+#     "settle":  { "<dayKey>": {                    # 日切结算台账（00:00 槽产出）
+#                    "perfect":       <bool>,       # 当天是否全勤
+#                    "done":          <int>,        # 已完成核心任务数
+#                    "total":         <int>,        # 应有核心任务数
+#                    "streakAfter":   <int>,        # 结算后连续全勤天数
+#                    "brokenStreak":  <int>,        # 结算后连续断签天数（全勤则为 0）
+#                    "coupons":       [<couponId>], # 本次发放的野餐篮 id
+#                    "settledAt":     <ms>
+#                 } },
+#     "streak":  { "current": <int>, "best": <int>, "lastPerfectDay": "<dayKey>|null",
+#                  "brokeDays": <int>, "brokenStreak": <int> },
+#     "calibration": { "avgLateMin": <float>, "suggestedLead": <int>,
+#                      "samples": <int>, "updatedAt": <ms> },
+#     "updatedAt": <ms>
+#   }
+#   注：连续天数（streak）的权威账本放这里而不是 profile.json —— profile.json 由
+#       前端 sync-state 频繁写入，本工作流不碰它，避免两边互相覆盖。
+#
+# ── Profile.push 期望结构（data/profile.json，本工作流只读）──────────────────
+#   "push": {
+#     "leadMinutes": 30,
+#     "slots": [
+#       { "key":"morning",  "enabled":true,  "target":"07:00", "dayOffset":0 },
+#       { "key":"noon",     "enabled":false, "target":"12:00", "dayOffset":0 },
+#       { "key":"dusk",     "enabled":false, "target":"18:00", "dayOffset":0 },
+#       { "key":"night",    "enabled":true,  "target":"21:30", "dayOffset":0 },
+#       { "key":"final",    "enabled":true,  "target":"22:30", "dayOffset":0 },
+#       { "key":"midnight", "enabled":true,  "target":"00:00", "dayOffset":1 }
+#     ],
+#     "calibration": { "avgLateMin":0, "suggestedLead":30, "updatedAt":0 }
+#   }
+#   · slot.key 只认这 6 个（未知 key 会被忽略并打警告）。
+#   · profile 里缺的槽位用本文件 DEFAULT_SLOTS 的默认值补齐。
+#   · dayOffset=1 只给 midnight：它总结「刚过去的这一天」，触发落在次日 00:00 前 leadMinutes 分钟。
+#
+# 【00:00 结算槽干真活】全勤判定 → streak ±1 → 发野餐篮（幂等）→ 更新 pet/garden → 写回仓库。
+#
+# 【安全】所有 ${{ }} 只出现在 env: 里，绝不拼进 shell 脚本（防注入），沿用 v1 做法。
+#        钉钉 webhook + HMAC-SHA256 加签完全复用 .github/workflows/dingtalk-reminder.yml。
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # UTC，全天 144 次。真实触发时刻由脚本按「目标时间 − 提前量」判定。
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "强制推送的槽位 key（morning/noon/dusk/night/final/midnight）；留空＝按时间正常判定"
+        type: string
+        required: false
+        default: ""
+      force:
+        description: "忽略幂等去重，强制再发一次（仅配合 slot 使用）"
+        type: boolean
+        required: false
+        default: false
+      dry_run:
+        description: "演练模式：只打印判定结果与文案，不发钉钉、不写任何文件"
+        type: boolean
+        required: false
+        default: false
+
+# 同一时刻只允许一个推送任务在跑，避免两次调度撞车把同一条推两遍。
+# cancel-in-progress: false —— 宁可排队，也不要把已经发出去一半的任务砍掉。
+concurrency:
+  group: dingtalk-push
+  cancel-in-progress: false
+
+# 需要写权限来提交 data/push-state.json / pet-state.json / garden-state.json / coupons.json
+permissions:
+  contents: write
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    # 最长补睡 = LEAD_MAX(60) + PRE_WINDOW(5) = 65 分钟，留 15 分钟余量；同时防止脚本卡死占满配额。
+    timeout-minutes: 80
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          # 全量历史：推送冲突时要 git pull --rebase 重试，浅克隆会 rebase 失败
+          fetch-depth: 0
+
+      - name: 判定槽位并推送钉钉
+        id: send
+        # webhook / secret 一律从 GitHub Secrets 读，绝不写死真实值；
+        # workflow_dispatch 的输入统一走 env，避免 ${{ }} 直接拼进脚本造成注入。
+        env:
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          FORCE_SLOT: ${{ inputs.slot }}
+          FORCE: ${{ inputs.force }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python3 - <<'PY'
+          # -*- coding: utf-8 -*-
+          """阳光花园 v2 · 钉钉统一推送。
+
+          流程：
+            1. 读 data/profile.json 的 push 配置（leadMinutes / slots）
+            2. 读 data/{plans,checkins,pet-state,garden-state,coupons}.json 组装文案上下文
+            3. 读 data/push-state.json 做幂等 + 取连续天数台账
+            4. 逐个槽位算 fireAt → 窗口判定 → 可选补睡 → 渲染文案 → 加签发送
+            5. midnight 槽额外跑日切结算（全勤 / 连续天数 / 野餐篮 / 精灵 / 花园）
+            6. 写回 data/push-state.json（以及结算涉及的 pet/garden/coupons）
+          """
+          import base64
+          import calendar
+          import datetime
+          import hashlib
+          import hmac
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          # ---------------------------- 常量 ----------------------------
+
+          DATA_DIR = "data"
+          PROFILE_PATH = os.path.join(DATA_DIR, "profile.json")
+          PLANS_PATH = os.path.join(DATA_DIR, "plans.json")
+          CHECKINS_PATH = os.path.join(DATA_DIR, "checkins.json")
+          PET_PATH = os.path.join(DATA_DIR, "pet-state.json")
+          GARDEN_PATH = os.path.join(DATA_DIR, "garden-state.json")
+          COUPONS_PATH = os.path.join(DATA_DIR, "coupons.json")
+          STATE_PATH = os.path.join(DATA_DIR, "push-state.json")
+
+          SITE_URL = "https://chenliguan42057.github.io/RUN-form/manage.html"
+
+          # 窗口参数（见文件头注释）。POST 开到 25 分钟是为了兜住 GitHub 高峰期抖动。
+          PRE_WINDOW_MIN = 5
+          POST_WINDOW_MIN = 25
+          # 补睡上限：= LEAD_MAX(60) + PRE_WINDOW_MIN(5) + 余量。超过就放弃，防止算错时钟睡死。
+          MAX_SLEEP_SEC = 70 * 60
+          # 提前量边界：0 = 不提前（等于整点硬扛 GitHub 延迟），60 = 提前一小时（足够兜住 15~45 分钟抖动）
+          LEAD_MIN, LEAD_MAX, LEAD_DEFAULT = 0, 60, 30
+          # sent 台账保留天数，防止文件无限增长
+          KEEP_DAYS = 120
+          # 校准样本保留条数（前端取同样的窗口算平均迟到）
+          HISTORY_SIZE = 14
+          # 券有效期（天）
+          COUPON_VALID_DAYS = 180
+
+          # 北京时间（UTC+8）。仓库里所有 target / plan.time / dayKey 都按北京时间理解。
+          BJ_TZ = datetime.timezone(datetime.timedelta(hours=8))
+
+          # 默认槽位（profile.json 里缺项时用它补齐；用户可在管理页改 target / enabled）
+          DEFAULT_SLOTS = [
+              {"key": "morning",  "label": "早安",     "enabled": True,  "target": "07:00", "dayOffset": 0},
+              {"key": "noon",    "label": "午间",     "enabled": False, "target": "12:00", "dayOffset": 0},
+              {"key": "dusk",    "label": "傍晚",     "enabled": False, "target": "18:00", "dayOffset": 0},
+              {"key": "night",   "label": "睡前冲刺", "enabled": True,  "target": "21:30", "dayOffset": 0},
+              {"key": "final",   "label": "最后提醒", "enabled": True,  "target": "22:30", "dayOffset": 0},
+              {"key": "midnight","label": "日切结算", "enabled": True,  "target": "00:00", "dayOffset": 1},
+          ]
+          SLOT_KEYS = [s["key"] for s in DEFAULT_SLOTS]
+
+          # 槽位标题（钉钉 actionCard 的 title）
+          SLOT_TITLES = {
+              "morning":  "🌤 早安 · 阳光花园",
+              "noon":     "🍚 午间 · 阳光花园",
+              "dusk":     "🌇 傍晚 · 阳光花园",
+              "night":    "🌙 睡前冲刺 · 阳光花园",
+              "final":    "⏰ 最后提醒 · 阳光花园",
+              "midnight": "🌙 今日结算 · 阳光花园",
+          }
+
+          # 精灵 5 阶段（相处天数 = diffDays(bornAt, today) + 1）
+          # ⚠️ 改动需同步 js/systems/pet.js 的 PET_STAGES
+          PET_STAGES = [
+              {"key": "egg",    "emoji": "🥚", "minDay": 1,  "label": "精灵蛋"},
+              {"key": "baby",   "emoji": "🐣", "minDay": 4,  "label": "幼年期"},
+              {"key": "grow",   "emoji": "🌱", "minDay": 15, "label": "成长期"},
+              {"key": "mature", "emoji": "✨", "minDay": 31, "label": "成熟期"},
+              {"key": "evolve", "emoji": "🌟", "minDay": 91, "label": "进化体"},
+          ]
+          PET_STATE_LABELS = {
+              "normal": "精神饱满", "sleep": "打瞌睡", "sick": "有点蔫",
+              "faded": "快消散了", "gone": "暂时离开了",
+          }
+
+          # 断签档位 → 花园枯萎比例（连续断签天数 → witherRatio）
+          # ⚠️ 改动需同步 js/systems/punishment.js
+          WITHER_TIERS = [(7, 1.0), (5, 0.9), (3, 0.6), (2, 0.3)]
+
+          # 野餐篮发放规则：连续 N 天 → 券列表
+          # （kind, amount 元, source, 中文名）
+          MILESTONE_RULES = {
+              7:   [("basic", 50, "streak7", "基础野餐篮")],
+              14:  [("upgrade", 100, "streak14", "升级野餐篮"), ("basic", 50, "streak14", "基础野餐篮")],
+              30:  [("luxury", 200, "streak30", "豪华野餐篮"), ("gift", 0, "streak30", "纪念花")],
+              100: [("luxury", 200, "streak100", "百天纪念篮"), ("gift", 0, "streak100", "纪念花")],
+          }
+          # 需要发「里程碑特别庆祝文案」的连续天数
+          CELEBRATE_STREAKS = (7, 14, 30, 100)
+
+          # ---------------------------- 文案 ----------------------------
+          # 每个槽 3~5 个变体，用 hash(dayKey + slotKey) % len 稳定选取，
+          # 保证同一天同一槽刷新/重跑都抽到同一条（不会跳变）。
+          # 语气严格按心理学设计：鼓励为主鞭策为辅，结尾永远留希望感，绝不打击自尊。
+          # ⚠️ 改动需同步 js/systems/pet.js 的 speak()
+          #
+          # 可用占位符：{pet} {owner} {done} {total} {pending} {streak} {days}
+          #             {day} {best} {petEmoji} {petState} {stageLabel} {basketLine}
+
+          COPY = {
+              "morning": [
+                  ["🌤 {pet}揉了揉眼睛：早安呀～",
+                   "今天的核心任务有 {total} 项，已完成 {done} 项。",
+                   "我们已经一起走了 {streak} 天，再 {days} 天就能换一只新的野餐篮 🧺",
+                   "先挑最不费力的那一项开始，晨光会替你加油。"],
+                  ["☀️ 早安！{pet}已经在窗台上晒太阳了。",
+                   "昨天是连续第 {streak} 天，我今天想续上第 {streakNext} 天。",
+                   "今日 {total} 项核心，已完成 {done} 项，还差 {pending} 项。",
+                   "不用一口气做完，做完第一项，今天就算赢了一半。"],
+                  ["🌱 早，{pet}今天也在。",
+                   "今天 {total} 项核心任务，完成 {done} 项 —— 剩下的我们慢慢啃。",
+                   "距离下一只野餐篮还有 {days} 天，我想和你一起去野餐 🧺",
+                   "喝口水，伸个懒腰，我们开始吧。"],
+                  ["🐣 {pet}：早呀，昨晚我梦到你又完成了很棒的一天。",
+                   "今日进度 {done}/{total}，连续 {streak} 天。",
+                   "今天天气很好，适合把最难的那件先解决掉 ☀️",
+                   "做不完也没关系，我会一直在这儿等你回来。"],
+              ],
+              "noon": [
+                  ["🍚 午饭时间到，{pet}也想加餐了。",
+                   "上午做了 {done}/{total} 项，剩下的先放一放。",
+                   "吃完饭回来再补一项，中午那二十分钟意外地好用。",
+                   "别急，饭要好好吃。"],
+                  ["🥢 {pet}：先吃饭，任务不会跑掉的。",
+                   "今天核心 {done}/{total}，还差 {pending} 项。",
+                   "吃饱了脑子才转得快，下午我们一口气解决它。",
+                   "记得喝汤 🍲"],
+                  ["🍱 中午啦～今日进度 {done}/{total}。",
+                   "没做完的先记在心里，它会自己惦记着你 😉",
+                   "饭后散步十分钟，回来再收掉一项。",
+                   "我们还有一整个下午呢。"],
+                  ["🌤 {pet}趴在饭盒边：一起吃个午饭吧。",
+                   "已经完成 {done} 项了，真的挺棒。",
+                   "下午挑 {pending} 项里最短的那个，五分钟就能划掉一个。",
+                   "慢慢来，比较快。"],
+              ],
+              "dusk": [
+                  ["🌇 傍晚了，{pet}在窗边等你。",
+                   "今天核心 {done}/{total}，还差 {pending} 项。",
+                   "连续 {streak} 天，别让它断在一半呀。",
+                   "还剩几个小时，够用的。"],
+                  ["🌆 {pet}：天要黑了，我们来收个尾。",
+                   "已完成 {done} 项，剩 {pending} 项。",
+                   "你今天已经比昨天多走了一步。",
+                   "把最后一项做完，晚上就能安心躺着了 🛋"],
+                  ["🧡 傍晚好，{pet}数了数今天的成果：{done}/{total}。",
+                   "还差 {pending} 项就全勤，别让它溜走。",
+                   "现在开始，十分钟后的你会感谢现在的你。",
+                   "我陪你一起。"],
+                  ["🌗 {pet}：太阳下山前，我们再努力一下。",
+                   "进度 {done}/{total}，连续 {streak} 天。",
+                   "没做的那项其实没你想的那么难，它只是还没开始。",
+                   "开始了就算赢一半 ✨"],
+              ],
+              "night": [
+                  ["🌙 {pet}：还有两个半小时，我们来得及。",
+                   "今日核心 {done}/{total}，就差 {pending} 项了。",
+                   "已经连续 {streak} 天，断在今天有点可惜。",
+                   "做完它，今晚睡得会特别香。"],
+                  ["✨ 晚上好，{pet}把今天的清单又看了一遍。",
+                   "已完成 {done} 项，剩 {pending} 项。",
+                   "只要再 {pending} 项，今天就是第 {streakNext} 个全勤日 🌟",
+                   "我在门口等你回来打卡。"],
+                  ["🕯 {pet}小声说：还差一点点就全勤了。",
+                   "今日 {done}/{total}，就剩 {pending} 项。",
+                   "已经坚持 {streak} 天了，今晚别让它归零。",
+                   "先做最省事的那项，五分钟就好。"],
+                  ["🌛 九点半了，{pet}还没睡。",
+                   "进度 {done}/{total}，连续 {streak} 天。",
+                   "你已经撑过一整天了，最后 {pending} 项真的不难。",
+                   "做完我们一起躺着看月亮。"],
+              ],
+              "final": [
+                  ["⏰ {pet}：只剩九十分钟啦！",
+                   "今日 {done}/{total}，还差 {pending} 项。",
+                   "现在开始完全来得及，真的。",
+                   "别自责，先动起来，我陪你 💪"],
+                  ["🔥 最后提醒，{pet}在倒计时。",
+                   "核心任务还剩 {pending} 项没打卡。",
+                   "连续 {streak} 天，就差今天这一步。",
+                   "现在去做，还赶得上今天的太阳。"],
+                  ["🚨 {pet}举着小喇叭：还差 {pending} 项！",
+                   "进度 {done}/{total}。",
+                   "不用做完美，做了就算数 ✅",
+                   "快去，做完我们一起睡觉。"],
+                  ["⌛ {pet}看了一眼钟：还剩一点点时间。",
+                   "今天的核心还差 {pending} 项。",
+                   "你已经很累了，但五分钟后的你会很骄傲。",
+                   "我在这儿等你，不急，但也别停 🌙"],
+              ],
+              "midnight_perfect": [
+                  ["🎉 全勤达成！{pet}在花园里转圈圈。",
+                   "今天 {total} 项核心任务，一项不落 🎊",
+                   "连续第 {streak} 天！{basketLine}",
+                   "明天见，我们会越来越好的 🌻"],
+                  ["🌟 第 {streak} 天，完美收官。",
+                   "你在 {day} 完成了全部 {total} 项核心任务。",
+                   "我把花园的灯打开了，为你亮一整晚 🏮",
+                   "晚安，明天继续一起。"],
+                  ["🏆 {pet}：今天你没有放过自己，我很骄傲。",
+                   "全勤 ✅ 连续 {streak} 天。{basketLine}",
+                   "距离下一只野餐篮还有 {days} 天 🧺",
+                   "睡吧，明天又是新的一天。"],
+                  ["🎇 恭喜！今日全勤，连续 {streak} 天。",
+                   "{total} 项核心全部完成，花园今天开得很满 🌺",
+                   "{basketLine}",
+                   "你比你以为的更有毅力。晚安 💤"],
+              ],
+              "midnight_miss": [
+                  ["🥀 {pet}有点失落，但更多的是心疼你。",
+                   "今天 {done}/{total} 项，还差 {pending} 项。",
+                   "连续天数归零了，没关系，明天就是新的第 1 天。",
+                   "花园还在，我也还在 🌱"],
+                  ["🌧 今天没能全勤，{pet}把灯留着。",
+                   "完成了 {done} 项，已经比什么都不做要好。",
+                   "断了就断了，明天补回来，我们重新开始。",
+                   "晚安，别责怪自己 🌙"],
+                  ["🍂 {pet}轻轻叹了口气，然后笑了。",
+                   "今日 {done}/{total}，差 {pending} 项。",
+                   "你已经累了，今天就到这儿吧。",
+                   "明天太阳照常升起，花园也照常在 🌅"],
+                  ["💤 夜深了，{pet}帮你把未完成的任务收进明天。",
+                   "今天 {done}/{total} 项，也有在努力。",
+                   "一次没做到，不代表什么。",
+                   "睡吧，明天我们再一起试一次 🌙"],
+              ],
+          }
+
+          # 里程碑特别庆祝（拼在全勤文案之后）
+          MILESTONE_LINES = {
+              7:   "🎈 连续 7 天！第一只野餐篮已经飞进你的背包 🧺",
+              14:  "🎈 连续 14 天！野餐篮升级了，这次可以放纵两顿 🧺🧺",
+              30:  "🎈 连续 30 天！！豪华野餐篮 + 一朵纪念花，你真的做到了 🌹",
+              100: "🎈 连续 100 天！！！{pet}把花园里最好看的那朵摘下来给你 🌟",
+          }
+
+          # ---------------------------- 通用工具 ----------------------------
+
+          def i32(n):
+              """把任意整数截断成 32 位有符号整数，模拟 JS 的 `| 0`。"""
+              n &= 0xFFFFFFFF
+              return n - 0x100000000 if n >= 0x80000000 else n
+
+          def hash_string(text):
+              """djb2 哈希，与前端 store.js 的 hashString 完全等价。
+
+              store.js: hash = ((hash << 5) + hash + charCode) | 0，最后取绝对值。
+              因此同一天前端和钉钉会抽到同一条文案变体，不会跳变。
+              """
+              h = 5381
+              for ch in str(text):
+                  h = i32(i32(h << 5) + h + ord(ch))
+              return abs(h)
+
+          def pick_seeded(items, seed):
+              """按种子稳定地从列表里取一项。"""
+              if not items:
+                  return None
+              return items[hash_string(seed) % len(items)]
+
+          def to_int(value, default=0):
+              """把任意输入转成 int；None / 空串 / 非数字统一回落到 default。"""
+              try:
+                  return int(value)
+              except (TypeError, ValueError):
+                  return default
+
+          def clamp(value, low, high):
+              """把 value 限制在 [low, high]。"""
+              return max(low, min(high, value))
+
+          def parse_hhmm(text, fallback=(8, 0)):
+              """解析 'HH:MM'；非法输入回落到 fallback。"""
+              if isinstance(text, str) and ":" in text:
+                  head, _, tail = text.partition(":")
+                  hour, minute = to_int(head, -1), to_int(tail, -1)
+                  if 0 <= hour <= 23 and 0 <= minute <= 59:
+                      return hour, minute
+              return fallback
+
+          def load_json(path, fallback):
+              """读 JSON；文件不存在 / 内容损坏时返回 fallback，绝不让 workflow 变红。"""
+              try:
+                  with open(path, encoding="utf-8") as fp:
+                      return json.load(fp)
+              except (OSError, ValueError) as exc:
+                  print(f"::notice::读取 {path} 失败（{exc}），使用兜底值")
+                  return fallback
+
+          def dump_json(path, payload):
+              """原子写 JSON（先写临时文件再替换），保证断电也不会留下半个文件。"""
+              tmp = path + ".tmp"
+              with open(tmp, "w", encoding="utf-8") as fp:
+                  json.dump(payload, fp, ensure_ascii=False, indent=2)
+                  fp.write("\n")
+              os.replace(tmp, path)
+
+          def epoch_ms(dt):
+              """datetime → epoch 毫秒。"""
+              return int(dt.timestamp() * 1000)
+
+          def env_flag(name, default=False):
+              """读布尔型环境变量（GitHub 的 boolean input 会变成 'true' / 'false'）。"""
+              raw = os.environ.get(name, "")
+              if raw == "":
+                  return default
+              return raw.strip().lower() in ("1", "true", "yes", "on")
+
+          def notice(message):
+              """打一条 GitHub 注解（不影响 workflow 成败）。"""
+              print(f"::notice::{message}")
+
+          def warn(message):
+              """打一条警告注解。"""
+              print(f"::warning::{message}")
+
+          def error(message):
+              """打一条错误注解。发送失败时用：日志里醒目，但不把整个 run 变红。"""
+              print(f"::error::{message}")
+
+          # ---------------------------- 钉钉发送 ----------------------------
+
+          def send_dingtalk(title, text):
+              """加签后调用钉钉机器人 webhook（actionCard，带「打开阳光花园」按钮）。
+
+              加签算法完全复用 .github/workflows/dingtalk-reminder.yml：
+                  sign = urlencode(base64(HMAC_SHA256(secret, f"{timestamp}\\n{secret}")))
+              失败抛 RuntimeError，由调用方决定是否记为已发送。
+              """
+              webhook = os.environ.get("DINGTALK_WEBHOOK", "")
+              secret = os.environ.get("DINGTALK_SECRET", "")
+              if not webhook or not secret:
+                  raise RuntimeError("缺少 DINGTALK_WEBHOOK / DINGTALK_SECRET secret")
+
+              timestamp = str(round(time.time() * 1000))
+              string_to_sign = f"{timestamp}\n{secret}"
+              digest = hmac.new(
+                  secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256
+              ).digest()
+              sign = urllib.parse.quote_plus(base64.b64encode(digest).decode("utf-8"))
+              url = f"{webhook}&timestamp={timestamp}&sign={sign}"
+
+              payload = {
+                  "msgtype": "actionCard",
+                  "actionCard": {
+                      "title": title,
+                      "text": text,
+                      "btnOrientation": "0",
+                      "btns": [{"title": "👉 打开阳光花园", "actionURL": SITE_URL}],
+                  },
+              }
+              body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+              request = urllib.request.Request(
+                  url,
+                  data=body,
+                  headers={"Content-Type": "application/json; charset=utf-8"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as resp:
+                      raw = resp.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as exc:
+                  raise RuntimeError(f"钉钉 HTTP {exc.code}：{exc.read().decode('utf-8', 'replace')}")
+              except urllib.error.URLError as exc:
+                  raise RuntimeError(f"钉钉网络错误：{exc.reason}")
+
+              # 钉钉的业务错误（签名失效 / 频率超限）HTTP 仍是 200，必须解析响应体
+              try:
+                  result = json.loads(raw or "{}")
+              except ValueError:
+                  raise RuntimeError(f"钉钉响应无法解析：{raw}")
+              if result.get("errcode") not in (0, None):
+                  raise RuntimeError(f"钉钉返回错误：{result}")
+              return result
+
+          # ---------------------------- 业务判定 ----------------------------
+
+          def plan_is_core(plan):
+              """是否核心任务。
+
+              v2 设计字段是 core（默认 true）；主理人邮件里写作 isCore，v1 老数据两个都没有。
+              三种情况一律按「是核心」处理，保证 v1 老计划迁移后不会静默变成非核心。
+              """
+              if "core" in plan:
+                  return bool(plan.get("core"))
+              if "isCore" in plan:
+                  return bool(plan.get("isCore"))
+              return True
+
+          def plan_matches_date(plan, date_obj):
+              """判断计划在 date_obj 这一天是否应当执行（只看日期，不看时刻）。
+
+              ⚠️ 星期口径：plan.day 是 Python 口径（周一 = 0），
+                 datetime.date.weekday() 同样是周一 = 0，直接比较，不做换算。
+                 前端 store.js 因为 JS 的 getDay() 是周日 = 0，才需要 (day + 1) % 7。
+              """
+              if not plan.get("enabled", True):
+                  return False
+              freq = plan.get("freq", "daily")
+              day = to_int(plan.get("day"), 0)
+              if freq == "weekly":
+                  return date_obj.weekday() == clamp(day, 0, 6)
+              if freq == "monthly":
+                  # 短月兜底：31 日这类不存在的日期落到当月最后一天，避免静默漏判
+                  last_day = calendar.monthrange(date_obj.year, date_obj.month)[1]
+                  return date_obj.day == clamp(day, 1, last_day)
+              return True
+
+          def checkin_day_keys(checkins):
+              """把打卡记录归集成 {dayKey: {planId, ...}}。
+
+              优先用记录自带的 dayKey（v2 前端写）；老数据没有 dayKey 就从 ts 按北京时间反推，
+              这样 v1 的历史打卡也能参与全勤判定。
+              """
+              buckets = {}
+              for rec in checkins:
+                  if not isinstance(rec, dict):
+                      continue
+                  key = rec.get("dayKey")
+                  if not (isinstance(key, str) and len(key) >= 10):
+                      ts = to_int(rec.get("ts"), 0)
+                      if ts <= 0:
+                          continue
+                      key = datetime.datetime.fromtimestamp(ts / 1000.0, BJ_TZ).strftime("%Y-%m-%d")
+                  buckets.setdefault(key[:10], []).append(rec)
+              return buckets
+
+          def core_progress(plans, checkins, date_obj):
+              """统计某一天的核心任务完成情况。
+
+              返回 (total, done, missing_plan_ids)：
+                  total   —— 当天应执行的核心任务数
+                  done    —— 已打卡的核心任务数
+                  missing —— 还没打卡的核心任务 planId 列表
+              """
+              day_key = date_obj.strftime("%Y-%m-%d")
+              buckets = checkin_day_keys(checkins)
+              today_recs = buckets.get(day_key, [])
+              done_ids = {
+                  rec.get("planId")
+                  for rec in today_recs
+                  if rec.get("planId")
+              }
+              total = 0
+              done = 0
+              missing = []
+              for plan in plans:
+                  if not isinstance(plan, dict) or not plan_is_core(plan):
+                      continue
+                  if not plan_matches_date(plan, date_obj):
+                      continue
+                  total += 1
+                  if plan.get("id") in done_ids:
+                      done += 1
+                  else:
+                      missing.append(plan.get("id"))
+              return total, done, missing
+
+          def stage_of(days_together):
+              """按相处天数返回精灵阶段字典。days_together = diffDays(bornAt, today) + 1。"""
+              current = PET_STAGES[0]
+              for stage in PET_STAGES:
+                  if days_together >= stage["minDay"]:
+                      current = stage
+              return current
+
+          def wither_ratio(broken_streak):
+              """连续断签天数 → 花园枯萎比例（0~1）。"""
+              for days, ratio in WITHER_TIERS:
+                  if broken_streak >= days:
+                      return ratio
+              return 0.0
+
+          def pet_state_of(broken_streak):
+              """连续断签天数 → 精灵状态机取值。"""
+              if broken_streak >= 7:
+                  return "gone"
+              if broken_streak >= 5:
+                  return "faded"
+              if broken_streak >= 3:
+                  return "sick"
+              if broken_streak >= 2:
+                  return "sleep"
+              return "normal"
+
+          def next_milestone(streak):
+              """下一个会发野餐篮的连续天数；没有则返回 None。"""
+              candidates = set(MILESTONE_RULES.keys())
+              multiple = 7
+              while multiple <= max(35, streak + 77):
+                  candidates.add(multiple)
+                  multiple += 7
+              bigger = sorted(x for x in candidates if x > streak)
+              return bigger[0] if bigger else None
+
+          def milestone_grants(streak):
+              """连续 streak 天应发放的券列表；空列表表示这一档没有券。
+
+              规则：
+                7 天   → 基础篮 50
+                14 天  → 升级篮 100 + 基础篮 50
+                30 天  → 豪华篮 200 + 纪念花
+                100 天 → 纪念篮 200 + 纪念花
+                其余每满 7 天 → 基础篮 50（可叠加，无上限）
+              """
+              grants = list(MILESTONE_RULES.get(streak, []))
+              if streak > 0 and streak % 7 == 0 and streak not in MILESTONE_RULES:
+                  grants.append(("basic", 50, f"streak{streak}", "基础野餐篮"))
+              return grants
+
+          def merge_slots(raw_slots):
+              """把 profile.push.slots 合并到 DEFAULT_SLOTS 上。
+
+              只认 6 个已知 key；profile 里缺的用默认值补齐；未知 key 忽略并警告。
+              这样 T02 还没落地 profile.json 时，本工作流也能按用户拍板的默认 4 槽跑。
+              """
+              overrides = {}
+              if isinstance(raw_slots, list):
+                  for item in raw_slots:
+                      if not isinstance(item, dict):
+                          continue
+                      key = item.get("key")
+                      if key not in SLOT_KEYS:
+                          warn(f"profile.push.slots 里有未知槽位 key={key!r}，已忽略")
+                          continue
+                      overrides[key] = item
+              merged = []
+              for default in DEFAULT_SLOTS:
+                  slot = dict(default)
+                  override = overrides.get(default["key"])
+                  if override:
+                      if "enabled" in override:
+                          slot["enabled"] = bool(override["enabled"])
+                      if "target" in override:
+                          slot["target"] = str(override["target"])
+                      if "dayOffset" in override:
+                          slot["dayOffset"] = clamp(to_int(override["dayOffset"], 0), 0, 1)
+                  merged.append(slot)
+              return merged
+
+          # ---------------------------- 文案渲染 ----------------------------
+
+          def build_context(profile, plans, checkins, pet, state, now, day_key):
+              """组装文案上下文（所有占位符的值都在这里算好）。"""
+              date_obj = now.date()
+              total, done, missing = core_progress(plans, checkins, date_obj)
+              streak_block = state.get("streak") if isinstance(state.get("streak"), dict) else {}
+              streak = to_int(streak_block.get("current"), 0)
+              best = to_int(streak_block.get("best"), 0)
+
+              pet_name = str(pet.get("name") or "小光")
+              days_together = 1
+              born_at = to_int(pet.get("bornAt"), 0)
+              if born_at > 0:
+                  born_day = datetime.datetime.fromtimestamp(born_at / 1000.0, BJ_TZ).date()
+                  days_together = max(1, (date_obj - born_day).days + 1)
+              stage = stage_of(days_together)
+
+              milestone = next_milestone(streak)
+              days_to_next = (milestone - streak) if milestone else 0
+
+              ctx = {
+                  "pet": pet_name,
+                  "petEmoji": stage["emoji"],
+                  "stageLabel": stage["label"],
+                  "petState": PET_STATE_LABELS.get(str(pet.get("state") or "normal"), "精神饱满"),
+                  "owner": str(profile.get("owner") or "你"),
+                  "day": day_key,
+                  "done": done,
+                  "total": total,
+                  "pending": max(0, total - done),
+                  "streak": streak,
+                  "streakNext": streak + 1,
+                  "best": best,
+                  "days": days_to_next,
+                  "basketLine": "",
+                  "missingPlanIds": missing,
+              }
+              return ctx
+
+          def render_lines(slot_key, ctx):
+              """渲染指定槽位的文案行（含全勤/未全勤分叉与里程碑庆祝）。"""
+              if slot_key == "midnight":
+                  perfect = ctx.get("perfect", False)
+                  pool = COPY["midnight_perfect" if perfect else "midnight_miss"]
+              else:
+                  pool = COPY.get(slot_key) or [["（这个槽位没有文案）"]]
+              lines = list(pick_seeded(pool, f"{ctx['day']}|{slot_key}"))
+              if slot_key == "midnight" and ctx.get("perfect"):
+                  streak = ctx["streak"]
+                  if streak in MILESTONE_LINES:
+                      lines.append(MILESTONE_LINES[streak].format(**ctx))
+                  if ctx.get("basketLine"):
+                      lines.append(f"🎁 已到账：{ctx['basketLine']}")
+              # 兜底：占位符缺失时不要用 KeyError 把整个推送搞挂
+              rendered = []
+              for line in lines:
+                  try:
+                      rendered.append(line.format(**ctx))
+                  except (KeyError, IndexError, ValueError):
+                      rendered.append(line)
+              return rendered
+
+          def render_card_text(ctx, lines):
+              """把文案行拼成 actionCard 的 markdown 正文。
+
+              首行做标题，其余正文；末尾固定附一行「今天真实数据」——
+              无论抽到哪个变体，用户都能看到 今日核心 X/N、连续天数、精灵状态，
+              这是需求里「消息必须带真实数据」的兜底保证。
+              """
+              parts = [f"### {line}" if i == 0 else line for i, line in enumerate(lines)]
+              body = "\n\n".join(parts)
+              progress = f"　|　今日核心 **{ctx['done']}/{ctx['total']}**" if ctx["total"] > 0 else ""
+              tail = (f"\n\n---\n\n{ctx['petEmoji']} **{ctx['pet']}**"
+                      f"（{ctx['stageLabel']}·{ctx['petState']}）{progress}"
+                      f"　|　连续 **{ctx['streak']}** 天")
+              return body + tail
+
+          # ---------------------------- 日切结算 ----------------------------
+
+          def settle_day(state, plans, checkins, pet, garden, coupons, now, day_key, dry_run):
+              """00:00 日切结算：全勤判定 → 连续天数 → 野餐篮 → 精灵 → 花园。
+
+              幂等：state["settle"][day_key] 已存在就直接返回，绝不重复发券。
+              无核心任务（plans.json 为空）时不结算 —— 没有「全勤」可言，也不该误伤 streak。
+
+              返回 (结局字典, 是否被改动过)：结局字典含 perfect / streakAfter / coupons 等。
+              """
+              date_obj = now.date()
+              total, done, missing = core_progress(plans, checkins, date_obj)
+              if total <= 0:
+                  notice("当天没有需要执行的核心任务，跳过日切结算（不动 streak、不发券）")
+                  return None, False
+
+              settles = state.setdefault("settle", {})
+              if day_key in settles:
+                  notice(f"{day_key} 的日切结算已存在，跳过（幂等）")
+                  return settles[day_key], False
+
+              streak_block = state.setdefault("streak", {
+                  "current": 0, "best": 0, "lastPerfectDay": None,
+                  "brokeDays": 0, "brokenStreak": 0,
+              })
+              perfect = (done >= total)
+              if perfect:
+                  streak_block["current"] = to_int(streak_block.get("current"), 0) + 1
+                  streak_block["brokenStreak"] = 0
+                  streak_block["lastPerfectDay"] = day_key
+              else:
+                  streak_block["brokeDays"] = to_int(streak_block.get("brokeDays"), 0) + 1
+                  streak_block["brokenStreak"] = to_int(streak_block.get("brokenStreak"), 0) + 1
+                  streak_block["current"] = 0
+              streak_block["best"] = max(
+                  to_int(streak_block.get("best"), 0), to_int(streak_block.get("current"), 0)
+              )
+              streak = to_int(streak_block.get("current"), 0)
+              broken_streak = to_int(streak_block.get("brokenStreak"), 0)
+
+              # ---- 野餐篮：按连续天数发放，同一档绝不重复 ----
+              already = {
+                  to_int(c.get("grantedForStreak"), -1)
+                  for c in coupons
+                  if isinstance(c, dict)
+              }
+              granted_ids = []
+              granted_names = []
+              if perfect and streak > 0 and streak not in already:
+                  for kind, amount, source, label in milestone_grants(streak):
+                      now_ms = epoch_ms(now)
+                      coupon = {
+                          "id": f"cp-{day_key}-{source}-{kind}",
+                          "kind": kind,
+                          "amount": amount,
+                          "source": source,
+                          "grantedForStreak": streak,
+                          "grantedAt": now_ms,
+                          "expireAt": now_ms + COUPON_VALID_DAYS * 24 * 3600 * 1000,
+                          "usedAt": None,
+                          "usedAmount": 0,
+                          "note": "",
+                          "updatedAt": now_ms,
+                      }
+                      coupons.append(coupon)
+                      granted_ids.append(coupon["id"])
+                      granted_names.append(f"{label} {amount} 元" if amount else label)
+                      notice(f"发放野餐篮：连续 {streak} 天 → {label} {amount} 元")
+
+              # ---- 精灵：全勤加状态，断签掉心情并按档位进入状态机 ----
+              now_ms = epoch_ms(now)
+              if perfect:
+                  deltas = {"mood": 8, "energy": 5, "bond": 5, "food": -5}
+              else:
+                  deltas = {"mood": -15, "energy": -5, "bond": -3, "food": -8}
+              for field, delta in deltas.items():
+                  pet[field] = clamp(to_int(pet.get(field), 60) + delta, 0, 100)
+              pet["state"] = pet_state_of(broken_streak)
+              if pet["state"] == "sleep":
+                  pet.setdefault("sleepingSince", now_ms)
+              else:
+                  pet["sleepingSince"] = None
+              born_at = to_int(pet.get("bornAt"), 0)
+              if born_at <= 0:
+                  pet["bornAt"] = now_ms
+                  born_at = now_ms
+              born_day = datetime.datetime.fromtimestamp(born_at / 1000.0, BJ_TZ).date()
+              days_together = max(1, (date_obj - born_day).days + 1)
+              pet["stage"] = stage_of(days_together)["key"]
+              pet["lastDecayAt"] = now_ms
+              pet["lastVisit"] = now_ms
+              pet["updatedAt"] = now_ms
+
+              # ---- 花园：补建缺失的花（对齐 garden.js 的 syncFlowers，只增不删）----
+              garden.setdefault("flowers", [])
+              garden.setdefault("decor", [])
+              garden.setdefault("varieties", [])
+              garden.setdefault("season", "summer")
+              if perfect:
+                  garden["lastFullBloomDay"] = day_key
+              known = {
+                  f.get("planId") for f in garden["flowers"] if isinstance(f, dict)
+              }
+              for plan in plans:
+                  if not isinstance(plan, dict) or not plan_is_core(plan):
+                      continue
+                  if plan.get("id") in known:
+                      continue
+                  # 只补建，不删除：plans.json 若短暂为空也不会把已有花朵抹掉
+                  garden["flowers"].append({
+                      "planId": plan.get("id"),
+                      "stage": 0,
+                      "variety": "daisy",
+                      "withered": False,
+                      "wateredDay": None,
+                  })
+              for flower in garden["flowers"]:
+                  if not isinstance(flower, dict):
+                      continue
+                  if perfect:
+                      flower["withered"] = False
+                      flower["wateredDay"] = day_key
+                      flower["stage"] = clamp(to_int(flower.get("stage"), 0) + 1, 0, 4)
+                  elif flower.get("planId") in missing:
+                      flower["withered"] = True
+              garden["witherRatio"] = wither_ratio(broken_streak)
+              garden["updatedAt"] = now_ms
+
+              record = {
+                  "perfect": perfect,
+                  "done": done,
+                  "total": total,
+                  "streakAfter": streak,
+                  "brokenStreak": broken_streak,
+                  "coupons": granted_ids,
+                  "couponNames": granted_names,
+                  "settledAt": now_ms,
+              }
+              settles[day_key] = record
+              return record, True
+
+          # ---------------------------- 主流程 ----------------------------
+
+          def main():
+              dry_run = env_flag("DRY_RUN", False)
+              force_slot = (os.environ.get("FORCE_SLOT") or "").strip()
+              force = env_flag("FORCE", False)
+
+              now = datetime.datetime.now(BJ_TZ)
+              day_key = now.strftime("%Y-%m-%d")
+
+              profile = load_json(PROFILE_PATH, {})
+              if not isinstance(profile, dict):
+                  profile = {}
+              plans = load_json(PLANS_PATH, [])
+              checkins = load_json(CHECKINS_PATH, [])
+              pet = load_json(PET_PATH, {})
+              garden = load_json(GARDEN_PATH, {})
+              coupons = load_json(COUPONS_PATH, [])
+              if not isinstance(plans, list):
+                  plans = []
+              if not isinstance(checkins, list):
+                  checkins = []
+              if not isinstance(pet, dict):
+                  pet = {}
+              if not isinstance(garden, dict):
+                  garden = {}
+              if not isinstance(coupons, list):
+                  coupons = []
+
+              state = load_json(STATE_PATH, {})
+              if not isinstance(state, dict):
+                  state = {}
+              state.setdefault("sent", {})
+              state.setdefault("history", [])
+              state.setdefault("settle", {})
+              state.setdefault("streak", {
+                  "current": 0, "best": 0, "lastPerfectDay": None,
+                  "brokeDays": 0, "brokenStreak": 0,
+              })
+
+              push_cfg = profile.get("push")
+              if not isinstance(push_cfg, dict):
+                  push_cfg = {}
+              lead = clamp(to_int(push_cfg.get("leadMinutes"), LEAD_DEFAULT), LEAD_MIN, LEAD_MAX)
+              # sleepToTarget=true（默认）：补睡到 targetAt 再发，保证准点、且 lateSec ≥ 0 让校准收敛。
+              # 设为 false 则退回设计文档 §7.2 字面行为（补睡到 fireAt 就发）。
+              sleep_to_target = bool(push_cfg.get("sleepToTarget", True))
+              slots = merge_slots(push_cfg.get("slots"))
+
+              print(f"== 现在（北京时间） {now.strftime('%Y-%m-%d %H:%M:%S')} | dayKey={day_key} "
+                    f"| 提前量={lead} 分钟 | dry_run={dry_run} | force_slot={force_slot or '(无)'} ==")
+
+              sent_any = False
+              state_changed = False
+              data_changed = False
+
+              for slot in slots:
+                  now = datetime.datetime.now(BJ_TZ)  # 每次循环重取，补睡后时钟会前进
+                  key = slot["key"]
+
+                  if force_slot and force_slot != key:
+                      continue
+                  if not slot["enabled"] and not (force_slot == key):
+                      # midnight 即使关闭也要跑结算（数据完整性），只是不发消息；
+                      # 其它槽位关闭就彻底跳过。
+                      if key != "midnight":
+                          continue
+
+                  hour, minute = parse_hhmm(slot["target"], (8, 0))
+                  offset = clamp(to_int(slot.get("dayOffset"), 0), 0, 1)
+                  fire_date = now.date() + datetime.timedelta(days=offset)
+                  target_dt = datetime.datetime(
+                      fire_date.year, fire_date.month, fire_date.day,
+                      hour, minute, tzinfo=BJ_TZ,
+                  )
+                  fire_at = target_dt - datetime.timedelta(minutes=lead)
+                  # fireAt 只是「窗口开门时刻」；真正送达时刻是 targetAt（见文件头说明）
+                  deliver_at = target_dt if sleep_to_target else fire_at
+                  window_start = fire_at - datetime.timedelta(minutes=PRE_WINDOW_MIN)
+                  window_end = deliver_at + datetime.timedelta(minutes=POST_WINDOW_MIN)
+                  sent_key = f"{day_key}|{key}"
+
+                  print(f"-- 槽位 {key}（{slot['label']}）target={slot['target']} "
+                        f"enabled={slot['enabled']} | fireAt={fire_at.strftime('%m-%d %H:%M')} "
+                        f"deliverAt={deliver_at.strftime('%H:%M')} "
+                        f"窗口=[{window_start.strftime('%H:%M')}, {window_end.strftime('%H:%M')}]")
+
+                  if not force_slot:
+                      if now < window_start:
+                          print(f"   跳过：还没进窗口（差 {int((window_start - now).total_seconds() // 60)} 分钟）")
+                          continue
+                      if now > window_end:
+                          # 过了窗口就放弃今天这一条：宁可不发，也不要半夜两点弹「早安」
+                          print("   跳过：已超过窗口，今天不再补发")
+                          continue
+                      if now < deliver_at:
+                          wait_sec = (deliver_at - now).total_seconds()
+                          if wait_sec > MAX_SLEEP_SEC:
+                              print(f"   跳过：需要补睡 {int(wait_sec)} 秒，超过上限 {MAX_SLEEP_SEC} 秒")
+                              continue
+                          print(f"   补睡 {int(wait_sec)} 秒到 deliverAt 再发（保证准点送达）")
+                          if not dry_run:
+                              time.sleep(wait_sec)
+                          now = datetime.datetime.now(BJ_TZ)
+                      else:
+                          print(f"   立即发送（GitHub 迟到了 {int((now - deliver_at).total_seconds() // 60)} 分钟）")
+
+                  if sent_key in state["sent"] and not force:
+                      print(f"   跳过：{sent_key} 今天已经发过了（幂等）")
+                      continue
+
+                  # ---- 组装上下文（midnight 需要先结算才能知道全勤与否）----
+                  ctx = build_context(profile, plans, checkins, pet, state, now, day_key)
+
+                  if key == "midnight":
+                      record, changed = settle_day(
+                          state, plans, checkins, pet, garden, coupons, now, day_key, dry_run
+                      )
+                      if changed:
+                          data_changed = True
+                      if record is None:
+                          print("   跳过：当天没有核心任务，不结算也不推送")
+                          continue
+                      ctx["perfect"] = bool(record.get("perfect"))
+                      ctx["streak"] = to_int(record.get("streakAfter"), ctx["streak"])
+                      ctx["streakNext"] = ctx["streak"] + 1
+                      names = record.get("couponNames") or []
+                      ctx["basketLine"] = "、".join(names) if names else ""
+                      milestone = next_milestone(ctx["streak"])
+                      ctx["days"] = (milestone - ctx["streak"]) if milestone else 0
+                      # 结算会改 streak，未全勤时文案里的「已完成 X 项」要用结算结果
+                      ctx["done"] = to_int(record.get("done"), ctx["done"])
+                      ctx["total"] = to_int(record.get("total"), ctx["total"])
+                      ctx["pending"] = max(0, ctx["total"] - ctx["done"])
+                      if not slot["enabled"] and not force_slot:
+                          print("   midnight 槽已关闭 → 只写结算，不发消息")
+                          state_changed = True
+                          continue
+
+                  if ctx["total"] <= 0 and key != "midnight":
+                      # 非结算槽在没有核心任务时仍然推送（陪伴感），只是不显示 X/N
+                      pass
+
+                  variant_pool = COPY["midnight_perfect" if (key == "midnight" and ctx.get("perfect"))
+                                       else "midnight_miss"] if key == "midnight" else (COPY.get(key) or [[]])
+                  variant = hash_string(f"{day_key}|{key}") % max(1, len(variant_pool))
+                  lines = render_lines(key, ctx)
+                  title = SLOT_TITLES.get(key, "阳光花园")
+                  text = render_card_text(ctx, lines)
+
+                  print(f"   >>> 发送 [{key}] variant={variant}")
+                  for line in lines:
+                      print(f"       {line}")
+
+                  if dry_run:
+                      print("   [dry_run] 不真正发送，也不写状态文件")
+                      continue
+
+                  try:
+                      send_dingtalk(title, text)
+                  except RuntimeError as exc:
+                      error(f"槽位 {key} 发送失败：{exc}")
+                      continue
+
+                  sent_ms = epoch_ms(datetime.datetime.now(BJ_TZ))
+                  target_ms = epoch_ms(target_dt)
+                  state["sent"][sent_key] = {
+                      "sentAt": sent_ms,
+                      "targetAt": target_ms,
+                      "lateSec": int((sent_ms - target_ms) / 1000),
+                      "variant": variant,
+                      "manual": bool(force_slot),
+                  }
+                  if not force_slot:
+                      # 手动触发（workflow_dispatch）的 lateSec 是「当前时刻 − 目标时刻」，
+                      # 跟 GitHub 调度延迟无关，放进校准样本会把 avgLateMin 带歪，故剔除。
+                      state["history"].append({
+                          "dayKey": day_key,
+                          "slot": key,
+                          "lateSec": int((sent_ms - target_ms) / 1000),
+                          "sentAt": sent_ms,
+                      })
+                  notice(f"已发送 {key}：目标 {target_dt.strftime('%H:%M')}，"
+                         f"实际 {datetime.datetime.now(BJ_TZ).strftime('%H:%M')}，"
+                         f"lateSec={int((sent_ms - target_ms) / 1000)}")
+                  sent_any = True
+                  state_changed = True
+
+              # ---- 收尾：裁剪台账 + 重算校准 + 落盘 ----
+              if state_changed or force_slot:
+                  cutoff = (now.date() - datetime.timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
+                  state["sent"] = {
+                      k: v for k, v in state["sent"].items()
+                      if isinstance(k, str) and k.split("|")[0] >= cutoff
+                  }
+                  state["history"] = state["history"][-HISTORY_SIZE:]
+                  late_samples = [
+                      to_int(item.get("lateSec"), 0) for item in state["history"]
+                  ]
+                  avg_late_min = (sum(late_samples) / len(late_samples) / 60.0) if late_samples else 0.0
+                  state["calibration"] = {
+                      "avgLateMin": round(avg_late_min, 2),
+                      # 建议提前量 = 当前提前量 + 平均迟到，夹在合法区间内
+                      "suggestedLead": int(clamp(round(lead + avg_late_min), LEAD_MIN, LEAD_MAX)),
+                      "samples": len(late_samples),
+                      "updatedAt": epoch_ms(datetime.datetime.now(BJ_TZ)),
+                  }
+                  state["updatedAt"] = epoch_ms(datetime.datetime.now(BJ_TZ))
+
+                  if dry_run:
+                      print("[dry_run] 跳过写 data/push-state.json")
+                  else:
+                      dump_json(STATE_PATH, state)
+                      print(f"已写入 {STATE_PATH}（sent={len(state['sent'])} 条，"
+                            f"history={len(state['history'])} 条，"
+                            f"avgLateMin={state['calibration']['avgLateMin']}）")
+                      if data_changed:
+                          dump_json(PET_PATH, pet)
+                          dump_json(GARDEN_PATH, garden)
+                          dump_json(COUPONS_PATH, coupons)
+                          print(f"已写入 {PET_PATH} / {GARDEN_PATH} / {COUPONS_PATH}")
+
+              if not sent_any and not dry_run:
+                  print("本次运行没有发送任何消息（这通常是正常的：144 次/天里只有 4 次会命中窗口）")
+
+          main()
+          PY
+
+      - name: 提交送达状态与结算结果
+        # ⚠️ 只 add 下面这几个白名单文件，绝不能 git add data/
+        #    （data/ 里还有 plans/checkins/profile 等由前端 sync-state 写入的文件）
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          FILES="data/push-state.json data/pet-state.json data/garden-state.json data/coupons.json"
+          for f in $FILES; do
+            if [ -f "$f" ]; then git add "$f"; fi
+          done
+
+          if git diff --cached --quiet; then
+            echo "没有文件变更，跳过提交"
+            exit 0
+          fi
+
+          git commit -m "chore(push): 记录送达状态与日切结算 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # 与前端 sync-state 并发写仓库时可能冲突，最多重试 3 次（rebase 后重推）
+          for i in 1 2 3; do
+            if git push; then
+              echo "推送成功（第 $i 次尝试）"
+              exit 0
+            fi
+            echo "推送失败，尝试 rebase 后重试（第 $i 次）"
+            git pull --rebase --autostash || true
+            sleep 3
+          done
+
+          echo "::error::推送失败，已重试 3 次仍不成功（本次送达状态可能未落盘，下次运行会幂等跳过）"
+          exit 1
