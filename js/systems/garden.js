@@ -5,8 +5,8 @@
 (function (RF) {
   "use strict";
 
-  var FLOWER_STAGES = ["🌱 种子", "🌿 发芽", "🌸 花苞", "🌺 初开", "🌻 盛开"];
-  var VARIETY_EMOJI = { daisy: "🌼", tulip: "🌷", rose: "🌹", sunflower: "🌻", lily: "🌸", lavender: "💜" };
+  var FLOWER_STAGES = RF.content.get("garden.flowerStages", ["🌱 种子", "🌿 发芽", "🌸 花苞", "🌺 初开", "🌻 盛开"]);
+  var VARIETY_EMOJI = RF.content.get("garden.varieties", { daisy: "🌼", tulip: "🌷", rose: "🌹", sunflower: "🌻", lily: "🌸", lavender: "💜" });
 
   function U() { return RF.util; }
   function B() { return RF.bus; }
@@ -30,12 +30,9 @@
   }
 
   function varietyFor(plan) {
+    var dv = RF.content.get("garden.difficultyVariety", ["daisy", "daisy", "lily", "tulip", "sunflower", "rose"]);
     var d = plan ? plan.difficulty : 3;
-    if (d >= 5) return "rose";
-    if (d >= 4) return "sunflower";
-    if (d >= 3) return "tulip";
-    if (d >= 2) return "lily";
-    return "daisy";
+    return dv[d] || "daisy";
   }
 
   function flowerState(planId) {
@@ -76,16 +73,17 @@
   }
 
   function unlocks(streak) {
+    var t = RF.content.get("garden.unlockThresholds", { tulip: 7, lily: 14, sunflower: 30, rose: 30, lamp: 7, fence: 14, fountain: 30 });
     var varieties = ["daisy"];
-    if (streak >= 7) varieties.push("tulip");
-    if (streak >= 14) varieties.push("lily");
-    if (streak >= 30) varieties.push("sunflower", "rose");
+    if (streak >= (t.tulip || 7)) varieties.push("tulip");
+    if (streak >= (t.lily || 14)) varieties.push("lily");
+    if (streak >= (t.sunflower || 30)) varieties.push("sunflower", "rose");
     var decor = [];
-    if (streak >= 7) decor.push("lamp");
-    if (streak >= 14) decor.push("fence");
-    if (streak >= 30) decor.push("fountain");
-    var season = "summer";
-    var ultimate = streak >= 30;
+    if (streak >= (t.lamp || 7)) decor.push("lamp");
+    if (streak >= (t.fence || 14)) decor.push("fence");
+    if (streak >= (t.fountain || 30)) decor.push("fountain");
+    var season = RF.content.get("garden.season", "summer");
+    var ultimate = streak >= (t.fountain || 30);
     return { varieties: varieties, decor: decor, season: season, ultimate: ultimate };
   }
 
