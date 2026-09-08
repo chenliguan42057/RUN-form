@@ -1,0 +1,419 @@
+/**
+ * styles/ui.css —— 卡片 / 按钮 / 状态条 / 环形进度 / 热力图 / 段位 / 成就 / 任务卡 /
+ *                     徽章 / 弹窗 / toast / 图标选择器（全局 UI 基元）
+ * 归属：B 组（T03）。只用 tokens.css 变量；动画只动 transform / opacity。
+ * 说明：本文件与 shop.css 同时被 4 个页面加载，可放任意全局类。
+ */
+
+/* ==================== 卡片 ==================== */
+.g-card {
+  position: relative;
+  z-index: var(--g-z-content);
+  background: var(--g-glass-bg-strong);
+  border: 1px solid var(--g-glass-border);
+  border-radius: var(--g-radius-lg);
+  box-shadow: var(--g-shadow-md);
+  padding: var(--g-gap-md);
+  -webkit-backdrop-filter: blur(var(--g-glass-blur));
+  backdrop-filter: blur(var(--g-glass-blur));
+}
+.g-card--pet { padding-bottom: var(--g-gap-sm); }
+
+.g-card > .g-card__title {
+  display: block;
+  margin-bottom: var(--g-gap-sm);
+}
+.g-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--g-gap-sm);
+  margin-bottom: var(--g-gap-sm);
+}
+.g-card__icon {
+  font-size: 22px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.g-card__titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.g-card__title {
+  font-family: var(--g-font-title);
+  font-size: var(--g-fs-lg);
+  font-weight: 800;
+  color: var(--g-ink);
+  line-height: 1.25;
+}
+.g-card__sub {
+  font-size: var(--g-fs-sm);
+  color: var(--g-text-soft);
+  margin-top: 2px;
+}
+.g-card__right {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.g-card__body { margin-top: var(--g-gap-sm); }
+
+/* ==================== 按钮（.u-btn 与 .g-btn 共用同一套） ==================== */
+.u-btn,
+.g-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: var(--g-radius-pill);
+  font-size: var(--g-fs-md);
+  font-weight: 700;
+  color: var(--g-ink);
+  background: var(--g-glass-bg);
+  border: 1px solid var(--g-glass-border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--g-dur-fast) var(--g-ease),
+    background var(--g-dur-fast) linear, box-shadow var(--g-dur-fast) linear;
+}
+.u-btn:active,
+.g-btn:active { transform: translateY(1px) scale(0.985); }
+
+.u-btn--primary,
+.g-btn--primary {
+  background: var(--g-mint-deep);
+  color: var(--g-white);
+  border-color: transparent;
+  box-shadow: var(--g-shadow-sm);
+}
+.u-btn--primary:hover,
+.g-btn--primary:hover { box-shadow: var(--g-shadow-md); }
+
+.u-btn--ghost,
+.g-btn--ghost {
+  background: var(--g-glass-bg);
+  color: var(--g-ink);
+  border-color: var(--g-glass-border);
+}
+.u-btn--ghost:hover,
+.g-btn--ghost:hover { background: var(--g-white); }
+
+.u-btn--sm,
+.g-btn--sm { padding: 6px 14px; font-size: var(--g-fs-sm); }
+
+/* ==================== 状态条 / 进度条 ==================== */
+.g-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.g-bar__emoji {
+  font-size: 16px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.g-bar__track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 10px;
+  border-radius: var(--g-radius-pill);
+  background: var(--g-line);
+  overflow: hidden;
+}
+.g-bar__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  border-radius: inherit;
+  background: var(--bar-color, var(--g-sky));
+  transform-origin: left center;
+  /* 仅动 transform（scaleX 由 JS 内联写入），过渡平滑 */
+  transition: transform var(--g-dur-mid) var(--g-ease);
+}
+.g-bar__num {
+  font-size: var(--g-fs-xs);
+  color: var(--g-text-soft);
+  flex: 0 0 auto;
+}
+.g-bar__max { opacity: 0.7; }
+
+/* 数字卡（stats.html 的 .g-stat 在 #streak-slot / .g-rank 内已横排，见 pet.css） */
+.g-stat__value { line-height: 1.1; }
+
+/* ==================== 环形进度（stats 今日完成度） ==================== */
+.g-ring {
+  display: flex;
+  justify-content: center;
+  padding: var(--g-gap-sm) 0;
+}
+.g-ring svg { overflow: visible; }
+.g-ring__num {
+  font-family: var(--g-font-num);
+  font-size: 24px;
+  font-weight: 800;
+  fill: var(--g-ink);
+}
+.g-ring__sub {
+  font-size: 12px;
+  fill: var(--g-text-soft);
+}
+
+/* ==================== 热力图（近 12 周） ==================== */
+.g-heat {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px 2px 6px;
+}
+.g-heat__week {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.g-heat__cell {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  background: rgba(120, 140, 120, 0.16);
+}
+.g-heat__cell--l1 { background: #cdeccd; }
+.g-heat__cell--l2 { background: var(--g-mint); }
+.g-heat__cell--l3 { background: var(--g-mint-deep); }
+.g-heat__cell--l4 { background: var(--g-sky-deep); }
+
+/* ==================== 段位 ==================== */
+.g-rank {
+  display: flex;
+  align-items: center;
+  gap: var(--g-gap-md);
+}
+.g-rank__emoji {
+  font-size: 40px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.g-rank__main { flex: 1 1 auto; min-width: 0; }
+.g-rank__name {
+  font-weight: 800;
+  font-size: var(--g-fs-lg);
+  color: var(--g-ink);
+}
+.g-rank__next {
+  font-size: var(--g-fs-sm);
+  color: var(--g-text-soft);
+  margin-top: 6px;
+}
+
+/* ==================== 成就墙 ==================== */
+.g-achievements {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g-gap-sm);
+}
+.g-ach {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 74px;
+  padding: 10px 6px;
+  border-radius: var(--g-radius-md);
+  background: var(--g-paper-2);
+  border: 1px solid var(--g-line);
+  opacity: 0.55;
+  transition: transform var(--g-dur-fast) var(--g-ease);
+}
+.g-ach.is-got {
+  opacity: 1;
+  background: var(--g-lemon-soft);
+  border-color: var(--g-lemon-deep);
+}
+.g-ach__emoji { font-size: 26px; line-height: 1; }
+.g-ach__name {
+  font-size: var(--g-fs-xs);
+  text-align: center;
+  color: var(--g-text-soft);
+}
+.g-ach.is-got .g-ach__name { color: var(--g-ink); font-weight: 600; }
+
+/* ==================== 任务卡（今日任务） ==================== */
+.g-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g-gap-sm);
+}
+.g-task {
+  display: flex;
+  align-items: center;
+  gap: var(--g-gap-sm);
+  padding: 12px;
+  border-radius: var(--g-radius-md);
+  background: var(--g-paper);
+  border: 1px solid var(--g-line);
+  transition: transform var(--g-dur-fast) var(--g-ease),
+    background var(--g-dur-fast) linear, border-color var(--g-dur-fast) linear;
+}
+.g-task:active { transform: scale(0.99); }
+.g-task.is-done {
+  background: var(--g-mint-soft);
+  border-color: var(--g-mint-deep);
+}
+.g-task__check {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--g-glass-bg);
+  border: 1px solid var(--g-glass-border);
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.g-task.is-done .g-task__check {
+  background: var(--g-mint-deep);
+  border-color: transparent;
+}
+.g-task__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.g-task__name {
+  font-weight: 700;
+  color: var(--g-ink);
+}
+.g-task__meta {
+  font-size: var(--g-fs-xs);
+  color: var(--g-text-soft);
+}
+.g-task__tag {
+  flex: 0 0 auto;
+  font-size: var(--g-fs-xs);
+  font-weight: 700;
+  color: var(--g-lemon-deep);
+  background: var(--g-lemon-soft);
+  padding: 2px 8px;
+  border-radius: var(--g-radius-pill);
+}
+
+/* ==================== 倒计时 / 连续全勤 文字 ==================== */
+.g-countdown {
+  font-size: var(--g-fs-2xl);
+  font-weight: 800;
+  color: var(--g-sky-deep);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+.g-count__time { letter-spacing: 0.06em; }
+.g-streak {
+  font-size: var(--g-fs-xl);
+  font-weight: 800;
+  color: var(--g-coral-deep);
+}
+
+/* ==================== 徽章 ==================== */
+.u-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 12px;
+  border-radius: var(--g-radius-pill);
+  background: var(--g-coral-soft);
+  color: var(--g-coral-deep);
+  font-size: var(--g-fs-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ==================== 弹窗 ==================== */
+.g-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--g-z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--g-gap-md);
+  background: rgba(58, 58, 74, 0.42);
+  opacity: 0;
+  transition: opacity var(--g-dur-mid) linear;
+}
+.g-overlay.is-open { opacity: 1; }
+.g-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--g-white);
+  border-radius: var(--g-radius-lg);
+  box-shadow: var(--g-shadow-lg);
+  padding: var(--g-gap-lg);
+  transform: translateY(8px) scale(0.98);
+  transition: transform var(--g-dur-mid) var(--g-ease);
+}
+.g-overlay.is-open .g-modal { transform: translateY(0) scale(1); }
+.g-modal__title {
+  font-family: var(--g-font-title);
+  font-size: var(--g-fs-xl);
+  font-weight: 800;
+  color: var(--g-ink);
+  margin-bottom: var(--g-gap-sm);
+}
+.g-modal__body {
+  font-size: var(--g-fs-md);
+  color: var(--g-text-soft);
+  margin-bottom: var(--g-gap-md);
+}
+.g-modal__body p { margin: 0; }
+.g-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--g-gap-sm);
+}
+
+/* ==================== 图标选择器 ==================== */
+.g-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.g-picker__item {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--g-radius-md);
+  background: var(--g-paper-2);
+  border: 1px solid var(--g-line);
+  font-size: 20px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--g-dur-fast) var(--g-ease),
+    border-color var(--g-dur-fast) linear, background var(--g-dur-fast) linear;
+}
+.g-picker__item.is-sel {
+  border-color: var(--g-sky-deep);
+  background: var(--g-sky-soft);
+  transform: scale(1.08);
+}
+
+/* ==================== toast 类型变体 ==================== */
+.g-toast--success { background: rgba(99, 201, 119, 0.95); }
+.g-toast--warning { background: rgba(224, 185, 63, 0.96); color: #4a3a10; }
+.g-toast--error { background: rgba(239, 122, 122, 0.96); }
+.g-toast--info { background: rgba(79, 163, 199, 0.96); }
+
+/* ==================== 降级：减少动效（与 base.css 协同，这里补弹窗位移） ==================== */
+@media (prefers-reduced-motion: reduce) {
+  .g-bar__fill,
+  .g-modal,
+  .g-overlay { transition: none; }
+}
