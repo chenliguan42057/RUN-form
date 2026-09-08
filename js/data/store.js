@@ -128,7 +128,8 @@
       var plans = loadPlans();
       for (var j = 0; j < plans.length; j++) { if (plans[j].id === planId) { plan = plans[j]; break; } }
     }
-    var coef = [1, 1.0, 1.2, 1.5, 1.8, 2.2][plan ? plan.difficulty : 3] || 1.5;
+    var _dp = RF.content.get("tuning.difficultyPoints", [1, 1.0, 1.2, 1.5, 1.8, 2.2]);
+    var coef = _dp[plan ? plan.difficulty : 3] || 1.5;
     var c = SC().defCheckin({
       id: U().genId(),
       planId: planId || null,
@@ -452,12 +453,12 @@
       saveRaw(K().PROFILE, m.profile);
     } else {
       // 全新用户：起名 + 种下默认种子任务
-      var seed = [
+      var seed = RF.content.get("seed.plans", [
         { name: "喝一杯温水", icon: "💧", freq: "daily", time: "07:30", core: true, difficulty: 1, estMinutes: 2 },
         { name: "运动 20 分钟", icon: "🏃", freq: "daily", time: "08:00", core: true, difficulty: 4, estMinutes: 20 },
         { name: "读 10 页书", icon: "📚", freq: "daily", time: "21:00", core: true, difficulty: 3, estMinutes: 15 },
         { name: "写一句今日感想", icon: "✍️", freq: "daily", time: "22:00", core: false, difficulty: 2, estMinutes: 5 }
-      ];
+      ]);
       seed.forEach(function (f) { addPlan(f); });
       savePet(SC().defPet());
       saveGarden(SC().defGarden());
