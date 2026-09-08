@@ -5,7 +5,8 @@
 (function (RF) {
   "use strict";
 
-  var RANKS = [
+  /** 段位表（可经 data/content.json 的 rpg.ranks 覆盖） */
+  var RANKS = RF.content.get("rpg.ranks", [
     { key: "novice", emoji: "🌱", name: "新手园丁", min: 0 },
     { key: "seedling", emoji: "🌿", name: "育苗学徒", min: 100 },
     { key: "sprout", emoji: "🍀", name: "抽芽园丁", min: 300 },
@@ -14,26 +15,44 @@
     { key: "gardener", emoji: "🌻", name: "阳光园主", min: 3000 },
     { key: "keeper", emoji: "🌳", name: "森林看守", min: 6000 },
     { key: "legend", emoji: "🏵", name: "花海传说", min: 12000 }
-  ];
+  ]);
 
-  /** 9 个成就定义 */
-  var ACHIEVEMENTS = [
-    { id: "first-checkin", name: "破土", emoji: "🌱", test: function (c) { return c.checkins >= 1; } },
-    { id: "first-flower", name: "第一朵花", emoji: "🌼", test: function (c) { return c.bloomed >= 1; } },
-    { id: "streak7", name: "一周花开", emoji: "🔥", test: function (c) { return c.streak >= 7; } },
-    { id: "streak14", name: "两周不辍", emoji: "⚡", test: function (c) { return c.streak >= 14; } },
-    { id: "streak30", name: "月度园丁", emoji: "🌟", test: function (c) { return c.streak >= 30; } },
-    { id: "points1k", name: "千分开外", emoji: "💎", test: function (c) { return c.total >= 1000; } },
-    { id: "points5k", name: "积分富农", emoji: "👑", test: function (c) { return c.total >= 5000; } },
-    { id: "perfect-week", name: "完美一周", emoji: "🏅", test: function (c) { return c.streak >= 7 && c.todayPerfect; } },
-    { id: "all-bloom", name: "满园芬芳", emoji: "🌷", test: function (c) { return c.flowers > 0 && c.bloomed === c.flowers; } }
-  ];
+  /**
+   * 成就解锁逻辑（代码侧，按 id 映射）。内容文案（名称/emoji）走 data/content.json，
+   * 二者按 id 合并——主理人改文案不动逻辑、改逻辑不动文案。
+   */
+  var TESTS = {
+    "first-checkin": function (c) { return c.checkins >= 1; },
+    "first-flower": function (c) { return c.bloomed >= 1; },
+    "streak7": function (c) { return c.streak >= 7; },
+    "streak14": function (c) { return c.streak >= 14; },
+    "streak30": function (c) { return c.streak >= 30; },
+    "points1k": function (c) { return c.total >= 1000; },
+    "points5k": function (c) { return c.total >= 5000; },
+    "perfect-week": function (c) { return c.streak >= 7 && c.todayPerfect; },
+    "all-bloom": function (c) { return c.flowers > 0 && c.bloomed === c.flowers; }
+  };
 
-  var DAILY_EVENTS = [
+  /** 成就定义（合并 content 文案 + 代码 test） */
+  var ACHIEVEMENTS = (RF.content.get("rpg.achievements", [
+    { id: "first-checkin", name: "破土", emoji: "🌱" },
+    { id: "first-flower", name: "第一朵花", emoji: "🌼" },
+    { id: "streak7", name: "一周花开", emoji: "🔥" },
+    { id: "streak14", name: "两周不辍", emoji: "⚡" },
+    { id: "streak30", name: "月度园丁", emoji: "🌟" },
+    { id: "points1k", name: "千分开外", emoji: "💎" },
+    { id: "points5k", name: "积分富农", emoji: "👑" },
+    { id: "perfect-week", name: "完美一周", emoji: "🏅" },
+    { id: "all-bloom", name: "满园芬芳", emoji: "🌷" }
+  ])).map(function (a) {
+    return { id: a.id, name: a.name, emoji: a.emoji, test: TESTS[a.id] || function () { return false; } };
+  });
+
+  var DAILY_EVENTS = RF.content.get("rpg.dailyEvents", [
     { id: "sunny", name: "阳光加成", desc: "今天打卡积分 ×1.5", multiplier: 1.5 },
     { id: "rain", name: "细雨滋润", desc: "小光心情 +15", delta: { mood: 15 } },
     { id: "wind", name: "清风助力", desc: "小光能量 +15", delta: { energy: 15 } }
-  ];
+  ]);
 
   function U() { return RF.util; }
   function B() { return RF.bus; }
