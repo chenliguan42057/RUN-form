@@ -6,18 +6,18 @@
 (function (RF) {
   "use strict";
 
-  var RULES = {
+  var RULES = RF.content.get("coupon.rules", {
     basic: { amount: 50, kind: "basic" },
     upgrade: { amount: 100, kind: "upgrade" },
     luxury: { amount: 200, kind: "luxury" }
-  };
+  });
 
-  /** 里程碑：连续天数 → 发券规格（可叠加，无上限） */
-  var MILESTONES = [
+  /** 里程碑：连续天数 → 发券规格（可叠加，无上限）。可在 data/content.json 自由调整 */
+  var MILESTONES = RF.content.get("coupon.milestones", [
     { days: 7, kind: "basic", amount: 50, source: "streak7", label: "连续 7 天 · 基础野餐篮" },
     { days: 14, kind: "upgrade", amount: 100, source: "streak14", label: "连续 14 天 · 升级野餐篮" },
     { days: 30, kind: "luxury", amount: 200, source: "streak30", label: "连续 30 天 · 豪华野餐篮" }
-  ];
+  ]);
 
   function U() { return RF.util; }
   function B() { return RF.bus; }
