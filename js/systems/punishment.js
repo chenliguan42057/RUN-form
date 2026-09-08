@@ -6,13 +6,13 @@
 (function (RF) {
   "use strict";
 
-  var LEVELS = [
+  var LEVELS = RF.content.get("punishment.levels", [
     { days: 0, pet: "sad", gardenRatio: 0.0, scene: "clear", msg: "今天还有任务没完成，小光有点失落……" },
     { days: 2, pet: "sick", gardenRatio: 0.3, scene: "cloudy", msg: "小光生病了，它说很想你……" },
     { days: 3, pet: "sleep", gardenRatio: 0.6, scene: "gray", msg: "小光沉睡了，花园快荒了……" },
     { days: 5, pet: "fade", gardenRatio: 0.9, scene: "fallen", msg: "小光快要消失了……" },
     { days: 7, pet: "gone", gardenRatio: 1.0, scene: "bw", msg: "小光走了。它留下了一封信。" }
-  ];
+  ]);
 
   var STATE_MAP = { sad: "normal", sick: "sick", sleep: "sleep", fade: "faded", gone: "gone" };
 
@@ -137,12 +137,13 @@
 
   function letter() {
     var days = RF.pet.stage().days;
-    return [
-      "亲爱的，这 " + days + " 天里你每一次打卡我都记着。",
+    var tpl = RF.content.get("punishment.letter", [
+      "亲爱的，这 {days} 天里你每一次打卡我都记着。",
       "花园也许会荒，但你不曾真的离开。",
       "想放纵的时候，记得先领好野餐篮——那是我留给你的放心许可。",
       "明天，我们重新一起开花吧。"
-    ].join("\n");
+    ]);
+    return tpl.join("\n").replace(/\{days\}/g, String(days));
   }
 
   RF.punishment = {
