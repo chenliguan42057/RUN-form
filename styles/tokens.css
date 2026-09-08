@@ -1,0 +1,141 @@
+/**
+ * styles/tokens.css —— 设计令牌（全局唯一真源）
+ *
+ * 归属：地基（T01，已实现）。
+ * 约定：
+ *   · B/C/D 组只能用这里定义的变量，**不得再硬编码颜色 / 圆角 / 阴影**。
+ *   · 变量命名 --g-<语义>（设计文档 §8.1）。
+ *   · 时段天空色由防闪脚本与 js/ui/scene.js 覆盖 --g-sky-from / --g-sky-to，
+ *     本文件只提供 6 个时段的**定义**与白天默认值。
+ *
+ * 字体：不引外链 CDN，用 system-ui + 圆润 fallback 栈；标题描边用 -webkit-text-stroke。
+ */
+:root {
+  /* ============ 六主色（设计文档 §2.2 指定） ============ */
+  --g-sky: #87ceeb;         /* 天空蓝 */
+  --g-mint: #98fb98;        /* 薄荷绿 */
+  --g-lemon: #ffe66d;       /* 柠檬黄 */
+  --g-coral: #ffb6c1;       /* 珊瑚粉 */
+  --g-lavender: #e6e6fa;    /* 薰衣草紫 */
+  --g-orange: #ffa07a;      /* 暖橙 */
+
+  /* 主色加深（文字 / 描边 / 进度条底色用） */
+  --g-sky-deep: #4fa3c7;
+  --g-mint-deep: #63c977;
+  --g-lemon-deep: #e0b93f;
+  --g-coral-deep: #f08ca3;
+  --g-lavender-deep: #b9b9e8;
+  --g-orange-deep: #e8764f;
+
+  /* 主色减淡（卡片底 / 高亮底用） */
+  --g-sky-soft: #dff1fb;
+  --g-mint-soft: #e4fce4;
+  --g-lemon-soft: #fff8d6;
+  --g-coral-soft: #ffeef2;
+  --g-lavender-soft: #f4f4fe;
+  --g-orange-soft: #ffece3;
+
+  /* ============ 中性色 ============ */
+  --g-ink: #3a3a4a;
+  --g-ink-soft: #6b6b80;
+  --g-paper: #fffdf7;
+  --g-paper-2: #fdf7ea;
+  --g-line: rgba(58, 58, 74, 0.12);
+  --g-white: #ffffff;
+
+  /* ============ 6 个时段的天空色（设计文档 §5.11 PERIODS） ============ */
+  --g-sky-sunrise-from: #ffd1b3;
+  --g-sky-sunrise-to: #ffb6c1;
+
+  --g-sky-morning-from: #87ceeb;
+  --g-sky-morning-to: #bfefff;
+
+  --g-sky-noon-from: #ffe66d;
+  --g-sky-noon-to: #fff3b0;
+
+  --g-sky-golden-from: #ffe9a8;
+  --g-sky-golden-to: #98fb98;
+
+  --g-sky-dusk-from: #ffa07a;
+  --g-sky-dusk-to: #e6e6fa;
+
+  --g-sky-night-from: #1b2a5b;
+  --g-sky-night-to: #3d5a98;
+
+  /* 当前生效的天空（被防闪脚本 / scene.js 覆盖） */
+  --g-sky-from: var(--g-sky-morning-from);
+  --g-sky-to: var(--g-sky-morning-to);
+
+  /* 地面与文字：夜间会由 scene.css 按 [data-period="night"] 反色 */
+  --g-grass-from: #a8e6a3;
+  --g-grass-to: #6fc47a;
+  --g-hill: #bfeec0;
+  --g-text: var(--g-ink);
+  --g-text-soft: var(--g-ink-soft);
+  --g-text-on-sky: var(--g-ink);
+
+  /* ============ 圆角 ============ */
+  --g-radius-sm: 10px;
+  --g-radius-md: 16px;
+  --g-radius-lg: 24px;
+  --g-radius-xl: 32px;
+  --g-radius-pill: 999px;
+
+  /* ============ 阴影 ============ */
+  --g-shadow-sm: 0 2px 8px rgba(58, 58, 74, 0.08);
+  --g-shadow-md: 0 8px 24px rgba(58, 58, 74, 0.12);
+  --g-shadow-lg: 0 16px 40px rgba(58, 58, 74, 0.18);
+
+  /* ============ 毛玻璃 ============ */
+  --g-glass-bg: rgba(255, 255, 255, 0.62);
+  --g-glass-bg-strong: rgba(255, 255, 255, 0.82);
+  --g-glass-border: rgba(255, 255, 255, 0.75);
+  --g-glass-blur: 14px;
+
+  /* ============ 字体栈（无外链 CDN） ============ */
+  --g-font: system-ui, -apple-system, "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --g-font-title: "PingFang SC", "HarmonyOS Sans SC", system-ui, -apple-system,
+    "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  --g-font-num: "SF Mono", ui-monospace, Menlo, Consolas, "Courier New", monospace;
+
+  --g-fs-xs: 12px;
+  --g-fs-sm: 13px;
+  --g-fs-md: 15px;
+  --g-fs-lg: 18px;
+  --g-fs-xl: 24px;
+  --g-fs-2xl: 34px;
+
+  /* ============ 间距 ============ */
+  --g-gap-xs: 4px;
+  --g-gap-sm: 8px;
+  --g-gap-md: 14px;
+  --g-gap-lg: 20px;
+  --g-gap-xl: 32px;
+
+  /* ============ 层级 ============ */
+  --g-z-scene: 0;
+  --g-z-content: 10;
+  --g-z-nav: 40;
+  --g-z-fx: 60;
+  --g-z-overlay: 80;
+  --g-z-toast: 100;
+
+  /* ============ 动效 ============ */
+  --g-dur-fast: 160ms;
+  --g-dur-mid: 320ms;
+  --g-dur-slow: 720ms;
+  --g-ease: cubic-bezier(0.34, 1.36, 0.64, 1);
+
+  /* ============ 四项状态条（精灵） ============ */
+  --g-stat-food: var(--g-orange);
+  --g-stat-mood: var(--g-coral);
+  --g-stat-energy: var(--g-lemon);
+  --g-stat-bond: var(--g-lavender-deep);
+
+  /* ============ 语义色 ============ */
+  --g-ok: var(--g-mint-deep);
+  --g-warn: var(--g-lemon-deep);
+  --g-danger: #ef7a7a;
+  --g-info: var(--g-sky-deep);
+}
