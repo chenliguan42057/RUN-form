@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-period="morning">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#87CEEB" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="阳光花园" />
+  <title>花园市集 · 阳光花园</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+
+  <script>
+    (function () {
+      try {
+        var h = new Date().getHours();
+        var p = h < 6 ? "night" : h < 9 ? "sunrise" : h < 12 ? "morning"
+              : h < 14 ? "noon" : h < 18 ? "golden" : h < 20 ? "dusk" : "night";
+        var SKY = {
+          sunrise: ["#FFD1B3", "#FFB6C1"], morning: ["#87CEEB", "#BFEFFF"],
+          noon: ["#FFE66D", "#FFF3B0"], golden: ["#FFE9A8", "#98FB98"],
+          dusk: ["#FFA07A", "#E6E6FA"], night: ["#1B2A5B", "#3D5A98"]
+        };
+        var s = SKY[p], r = document.documentElement;
+        r.setAttribute("data-period", p);
+        r.style.setProperty("--g-sky-from", s[0]);
+        r.style.setProperty("--g-sky-to", s[1]);
+      } catch (e) { /* 交给 tokens.css 默认值 */ }
+    })();
+  </script>
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/base.css" />
+  <link rel="stylesheet" href="styles/scene.css" />
+  <link rel="stylesheet" href="styles/pet.css" />
+  <link rel="stylesheet" href="styles/garden.css" />
+  <link rel="stylesheet" href="styles/ui.css" />
+  <link rel="stylesheet" href="styles/shop.css" />
+</head>
+<body>
+  <div class="g-scene" id="scene-root" aria-hidden="true">
+    <div class="g-scene__sky"></div>
+    <div class="g-scene__clouds" id="cloud-layer"></div>
+    <div class="g-scene__rainbow"></div>
+    <div class="g-scene__hills"></div>
+    <div class="g-scene__grass"></div>
+    <div class="g-scene__particles" id="particle-layer"></div>
+  </div>
+
+  <nav class="g-nav" id="g-nav" aria-label="主导航">
+    <a class="g-nav__link" href="index.html">🏡 花园</a>
+    <a class="g-nav__link" href="manage.html">📝 管理</a>
+    <a class="g-nav__link g-nav__link--active" href="shop.html">🧺 市集</a>
+    <a class="g-nav__link" href="stats.html">📖 档案</a>
+  </nav>
+
+  <main class="g-main" id="app-root">
+    <header class="g-hero">
+      <h1 class="g-hero__title">花园市集</h1>
+      <p class="g-hero__sub">只有拿着野餐篮，才可以放心地放纵一顿</p>
+      <p class="g-hero__meta">
+        可用额度 <span class="u-num" id="balance">0</span> 元 ·
+        积分 <span class="u-num" id="points">0</span>
+      </p>
+    </header>
+
+    <!-- 藤编篮库存：可多选叠加核销 -->
+    <section class="g-card" id="basket-card">
+      <div class="g-card__head u-row u-row--between">
+        <h2 class="g-card__title">🧺 我的野餐篮</h2>
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm" id="select-all-btn">全选</button>
+      </div>
+      <div class="g-basket-grid" id="basket-list"></div>
+      <p class="u-hint" id="basket-empty" hidden>还没有美食券，连续全勤 7 天就能领到第一张。</p>
+    </section>
+
+    <!-- 放纵餐登记 -->
+    <section class="g-card" id="indulge-card">
+      <h2 class="g-card__title">🍰 吃一顿放纵餐</h2>
+      <form class="g-form" id="indulge-form">
+        <label class="g-form__row">
+          <span class="g-form__label">金额（元）</span>
+          <input class="g-input u-num" type="number" id="indulge-amount" min="1" step="1" value="50" />
+        </label>
+        <label class="g-form__row">
+          <span class="g-form__label">用在哪顿</span>
+          <input class="g-input" type="text" id="indulge-note" maxlength="40" placeholder="比如：周末的海底捞" />
+        </label>
+        <button type="submit" class="u-btn u-btn--primary" id="indulge-submit">核销并开吃</button>
+      </form>
+      <p class="u-hint" id="theft-hint" hidden></p>
+    </section>
+
+    <!-- 积分商店：换道具 -->
+    <section class="g-card" id="shop-card">
+      <h2 class="g-card__title">🪙 积分商店</h2>
+      <div class="g-shop-grid" id="shop-grid"></div>
+    </section>
+
+    <footer class="g-footer">
+      野餐篮是自我承诺券，不对接任何支付 · 数据存于本地浏览器
+    </footer>
+  </main>
+
+  <div id="overlay-root"></div>
+  <div id="toast" class="g-toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="register-sw.js"></script>
+  <!-- ⚠️ 脚本加载顺序固定，4 个页面必须完全一致（设计文档 §8.2） -->
+  <script src="js/core/util.js"></script>
+  <script src="js/core/bus.js"></script>
+  <script src="js/core/storage.js"></script>
+  <script src="js/data/schema.js"></script>
+  <script src="js/data/store.js"></script>
+  <script src="js/systems/pet.js"></script>
+  <script src="js/systems/garden.js"></script>
+  <script src="js/systems/coupon.js"></script>
+  <script src="js/systems/punishment.js"></script>
+  <script src="js/systems/rpg.js"></script>
+  <script src="js/systems/countdown.js"></script>
+  <script src="js/systems/habits.js"></script>
+  <script src="js/ui/scene.js"></script>
+  <script src="js/ui/fx.js"></script>
+  <script src="js/ui/components.js"></script>
+  <script src="js/pages/shop.js"></script>
+  <script>RF.pages.shop.init();</script>
+</body>
+</html>
