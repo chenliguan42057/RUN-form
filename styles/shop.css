@@ -1,0 +1,282 @@
+/**
+ * styles/shop.css —— 市集栅格 / 藤编篮 / 积分商店 / 管理页表单·开关·时间输入 / Tab / 任务表 / 推送槽
+ * 归属：C 组（T04），D 组（管理页）共用。只用 tokens.css 变量；动画只动 transform / opacity。
+ * 说明：本文件与 ui.css 同时被 4 个页面加载，任意全局类都可直接放这里。
+ */
+
+/* ==================== 藤编篮库存（市集） ==================== */
+.g-basket-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--g-gap-sm);
+}
+.g-basket-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--g-radius-md);
+  background: var(--g-paper);
+  border: 1px solid var(--g-line);
+  cursor: pointer;
+  transition: border-color var(--g-dur-fast) linear, background var(--g-dur-fast) linear;
+}
+.g-basket-item.is-sel {
+  border-color: var(--g-mint-deep);
+  background: var(--g-mint-soft);
+}
+.g-basket-item__chk {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: var(--g-mint-deep);
+}
+.g-basket {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.g-basket__svg { flex: 0 0 auto; }
+.g-basket__info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.g-basket__amt {
+  font-weight: 800;
+  color: var(--g-orange-deep);
+}
+.g-basket__src,
+.g-basket__exp {
+  font-size: var(--g-fs-xs);
+  color: var(--g-text-soft);
+}
+.g-basket__tag { font-size: var(--g-fs-xs); color: var(--g-ok); font-weight: 600; }
+.g-basket.is-used { opacity: 0.55; }
+.g-basket.is-used .g-basket__amt {
+  text-decoration: line-through;
+  color: var(--g-text-soft);
+}
+
+/* ==================== 积分商店 ==================== */
+.g-shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--g-gap-md);
+}
+.g-shop-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--g-gap-md);
+  border-radius: var(--g-radius-lg);
+  background: var(--g-paper);
+  border: 1px solid var(--g-line);
+  text-align: center;
+}
+.g-shop-item__emoji { font-size: 40px; line-height: 1; }
+.g-shop-item__name { font-weight: 800; color: var(--g-ink); }
+.g-shop-item__desc {
+  font-size: var(--g-fs-xs);
+  color: var(--g-text-soft);
+  min-height: 2.8em;
+}
+.g-shop-item__own { font-size: var(--g-fs-xs); color: var(--g-ink-soft); }
+.g-shop-item__buy { margin-top: 4px; width: 100%; }
+
+/* ==================== 表单（管理页 + 市集放纵餐共用） ==================== */
+.g-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g-gap-sm);
+  margin-bottom: var(--g-gap-sm);
+}
+.g-form__row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.g-form__label {
+  font-size: var(--g-fs-sm);
+  font-weight: 600;
+  color: var(--g-ink);
+}
+.g-form__inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+.g-form__row--switch {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.g-form__row--switch .g-form__label { flex: 0 0 auto; }
+.g-form__row--switch input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--g-mint-deep); }
+
+.g-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--g-radius-md);
+  border: 1px solid var(--g-line);
+  background: var(--g-white);
+  color: var(--g-ink);
+  font-size: var(--g-fs-md);
+  transition: border-color var(--g-dur-fast) linear, box-shadow var(--g-dur-fast) linear;
+}
+.g-input:focus {
+  border-color: var(--g-sky-deep);
+  box-shadow: 0 0 0 3px var(--g-sky-soft);
+  outline: none;
+}
+.g-input::placeholder { color: var(--g-text-soft); }
+
+.g-hr {
+  border: 0;
+  border-top: 1px solid var(--g-line);
+  margin: var(--g-gap-md) 0;
+}
+
+/* 开关行（推送槽位用 .g-switch 包 checkbox + 文字） */
+.g-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--g-fs-sm);
+  color: var(--g-ink);
+}
+.g-switch input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--g-mint-deep); }
+
+/* ==================== Tab（管理页） ==================== */
+.g-tabs {
+  display: flex;
+  gap: var(--g-gap-xs);
+  padding: 6px;
+  border-radius: var(--g-radius-pill);
+  background: var(--g-glass-bg);
+  border: 1px solid var(--g-glass-border);
+  -webkit-backdrop-filter: blur(var(--g-glass-blur));
+  backdrop-filter: blur(var(--g-glass-blur));
+}
+.g-tabs__tab {
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border-radius: var(--g-radius-pill);
+  font-size: var(--g-fs-sm);
+  font-weight: 600;
+  color: var(--g-ink);
+  background: transparent;
+  white-space: nowrap;
+  transition: background var(--g-dur-fast) linear, color var(--g-dur-fast) linear;
+}
+.g-tabs__tab.is-active {
+  background: var(--g-white);
+  color: var(--g-sky-deep);
+  box-shadow: var(--g-shadow-sm);
+}
+
+/* ==================== 任务表（管理页） ==================== */
+.g-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g-gap-sm);
+  margin-top: var(--g-gap-sm);
+}
+.g-plan {
+  display: flex;
+  align-items: center;
+  gap: var(--g-gap-sm);
+  padding: 12px;
+  border-radius: var(--g-radius-md);
+  background: var(--g-paper);
+  border: 1px solid var(--g-line);
+  transition: opacity var(--g-dur-fast) linear;
+}
+.g-plan.is-off { opacity: 0.5; }
+.g-plan__icon { font-size: 24px; line-height: 1; flex: 0 0 auto; }
+.g-plan__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.g-plan__name { font-weight: 700; color: var(--g-ink); }
+.g-plan__core {
+  font-size: var(--g-fs-xs);
+  font-weight: 700;
+  color: var(--g-lemon-deep);
+  margin-left: 6px;
+}
+.g-plan__meta { font-size: var(--g-fs-xs); color: var(--g-text-soft); }
+.g-plan__acts {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.g-iconbtn {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--g-radius-sm);
+  background: var(--g-paper-2);
+  border: 1px solid var(--g-line);
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--g-dur-fast) var(--g-ease);
+}
+.g-iconbtn:active { transform: scale(0.9); }
+
+/* ==================== 推送槽位列表 ==================== */
+.g-slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g-gap-sm);
+  margin-top: var(--g-gap-sm);
+}
+.g-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--g-gap-sm);
+  padding: 10px 12px;
+  border-radius: var(--g-radius-md);
+  background: var(--g-paper);
+  border: 1px solid var(--g-line);
+}
+.g-slot .g-switch { flex: 1 1 auto; }
+.g-slot .g-input {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.g-calib {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--g-radius-md);
+  background: var(--g-lavender-soft);
+  border: 1px solid var(--g-lavender-deep);
+}
+
+/* 偷吃提示（shop.html #theft-hint，无 class，仅 id） */
+#theft-hint {
+  color: var(--g-danger);
+  font-weight: 600;
+}
+
+/* ==================== 降级：减少动效 ==================== */
+@media (prefers-reduced-motion: reduce) {
+  .g-task, .g-plan, .g-iconbtn, .g-picker__item, .g-basket-item { transition: none; }
+}
