@@ -1,0 +1,103 @@
+/**
+ * styles/pet.css —— 精灵形态 / 气泡 / 呼吸动画 + 四项状态条
+ * 归属：B 组（T03）。只用 tokens.css 变量；动画只动 transform / opacity。
+ */
+
+.g-pet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--g-gap-sm);
+  padding: var(--g-gap-md) 0;
+}
+
+.g-pet__body {
+  font-size: 72px;
+  line-height: 1;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--g-glass-bg-strong);
+  border: 1px solid var(--g-glass-border);
+  box-shadow: var(--g-shadow-md);
+  will-change: transform;
+  animation: g-pet-breathe 3.6s ease-in-out infinite;
+}
+@keyframes g-pet-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.03); }
+}
+
+/* 各阶段 / 状态皮肤（仅 transform / opacity / 背景变化） */
+.g-pet__body--egg { background: var(--g-lemon-soft); }
+.g-pet__body--baby { background: var(--g-sky-soft); }
+.g-pet__body--grow { background: var(--g-mint-soft); }
+.g-pet__body--mature { background: var(--g-coral-soft); }
+.g-pet__body--evolve { background: var(--g-lavender-soft); }
+
+.g-pet__body--sick { filter: saturate(0.6); animation-duration: 5.5s; }
+.g-pet__body--sleep { animation-duration: 6s; opacity: 0.85; }
+.g-pet__body--sleep::after {
+  content: "💤";
+  position: absolute;
+  font-size: 18px;
+  margin: -54px 0 0 40px;
+}
+.g-pet__body--faded { opacity: 0.5; filter: grayscale(0.5); }
+.g-pet__body--gone { opacity: 0.28; filter: grayscale(1); animation: none; }
+
+.g-pet__bubble {
+  max-width: 100%;
+  padding: 8px 14px;
+  border-radius: var(--g-radius-pill);
+  background: var(--g-white);
+  color: var(--g-ink);
+  font-size: var(--g-fs-sm);
+  box-shadow: var(--g-shadow-sm);
+  position: relative;
+  text-align: center;
+}
+.g-pet__bubble::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 12px;
+  height: 12px;
+  background: var(--g-white);
+}
+
+.g-pet__stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g-gap-sm);
+  width: 100%;
+  margin-top: var(--g-gap-sm);
+}
+
+/* 单项状态条（标签 + bar 竖排） */
+.g-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.g-stat__label {
+  font-size: var(--g-fs-sm);
+  color: var(--g-text-soft);
+}
+/* stats.html 的横向数字卡复用 .g-stat 时改为横排 */
+#streak-slot .g-stat,
+.g-rank .g-stat {
+  align-items: center;
+  text-align: center;
+}
+.g-stat__value {
+  font-size: var(--g-fs-2xl);
+  font-weight: 800;
+  color: var(--g-sky-deep);
+  line-height: 1.1;
+}
