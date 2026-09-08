@@ -14,16 +14,16 @@
    * 顺序必须与 STAGE_EMOJI 的 key 一一对应，并匹配 pet.css 的
    * g-pet__body--{egg,baby,grow,mature,evolve} 四个状态类。
    */
-  var PET_STAGES = [
+  var PET_STAGES = RF.content.get("pet.stages", [
     { minDay: 0,  key: "egg",    emoji: "🥚", label: "蛋" },
     { minDay: 3,  key: "baby",   emoji: "🐣", label: "破壳" },
     { minDay: 10, key: "grow",   emoji: "🌱", label: "成长" },
     { minDay: 21, key: "mature", emoji: "✨", label: "成熟" },
     { minDay: 40, key: "evolve", emoji: "🌟", label: "进化" }
-  ];
+  ]);
 
-  /** 台词变体（按优先级分桶，稳定选取避免刷新跳变） */
-  var LINES = {
+  /** 台词变体（按优先级分桶，稳定选取避免刷新跳变，文案走 data/content.json） */
+  var LINES = RF.content.get("pet.lines", {
     gone: [
       "我走了，但花园里每一朵花都记得你。",
       "没关系，你路过的风我都收好了。",
@@ -80,7 +80,7 @@
       "你做的事，我都看得见。",
       "一步一步，就很了不起。"
     ]
-  };
+  });
 
   function U() { return RF.util; }
   function B() { return RF.bus; }
