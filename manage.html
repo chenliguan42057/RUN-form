@@ -38,6 +38,11 @@
   <link rel="stylesheet" href="styles/garden.css" />
   <link rel="stylesheet" href="styles/ui.css" />
   <link rel="stylesheet" href="styles/shop.css" />
+
+  <style>
+    .g-content-editor{ width:100%; min-height:46vh; box-sizing:border-box; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; line-height:1.5; padding:12px; border:1px solid #e3e8e3; border-radius:12px; background:#fbfdfb; color:#2c3a36; resize:vertical; }
+    .g-content-editor.is-err{ border-color:#e06b6b; background:#fff5f5; }
+  </style>
 </head>
 <body>
   <div class="g-scene" id="scene-root" aria-hidden="true">
@@ -69,6 +74,7 @@
       <button type="button" class="g-tabs__tab is-active" data-tab="tasks" role="tab">🌷 任务表</button>
       <button type="button" class="g-tabs__tab" data-tab="settings" role="tab">⚙️ 设置</button>
       <button type="button" class="g-tabs__tab" data-tab="push" role="tab">🔔 推送配置</button>
+      <button type="button" class="g-tabs__tab" data-tab="content" role="tab">📚 内容</button>
     </div>
 
     <!-- ============ Tab 1 · 任务表 ============ -->
@@ -220,6 +226,22 @@
         <button type="button" class="u-btn u-btn--ghost" id="test-push-btn">测试推送</button>
       </div>
       <p class="u-hint">默认只开 4 个槽（07:00 / 21:30 / 22:30 / 00:00），12:00 与 18:00 默认关闭。</p>
+    </section>
+
+    <!-- ============ Tab 4 · 内容编辑 ============ -->
+    <section class="g-card" id="tab-content" data-panel="content" hidden>
+      <h2 class="g-card__title">📚 内容编辑</h2>
+      <p class="u-hint">免开仓库直接改站点内容（券 / 市集 / 精灵台词 / 段位 / 成就 / 花园品种 / 断签文案…）。先「本机保存」即时看效果，确认无误再「提交仓库」全设备生效。</p>
+      <div class="u-row u-row--between u-mt-sm">
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm" id="content-reset-btn">恢复默认</button>
+        <span class="u-sm" id="content-status"></span>
+      </div>
+      <textarea id="content-editor" class="g-content-editor" spellcheck="false"></textarea>
+      <div class="u-row u-mt-sm">
+        <button type="button" class="u-btn u-btn--primary" id="content-save-local">本机保存</button>
+        <button type="button" class="u-btn u-btn--sm" id="content-save-repo">提交仓库</button>
+      </div>
+      <p class="u-hint">「本机保存」仅此设备生效；「提交仓库」写入 data/content.json（公开仓库、全设备生效，需网络 / 同步通道）。</p>
     </section>
 
     <footer class="g-footer">
