@@ -41,6 +41,7 @@
     renderPush();
     bindSettings();
     bindPush();
+    initContentEditor();
     refreshLastSync();
   }
 
@@ -379,6 +380,39 @@
     var suggested = lead + avgMin;
     if ($("avg-late")) $("avg-late").textContent = n ? "最近 " + n + " 条平均迟到 " + avgMin + " 分钟" : "暂无数据";
     if ($("suggested-lead")) $("suggested-lead").textContent = String(suggested);
+  }
+
+  /* ---------------- 内容编辑 ---------------- */
+  function initContentEditor() {
+    var ta = $("content-editor");
+    if (!ta) return;
+    try { RF.content.load().then(function (obj) { ta.value = JSON.stringify(obj, null, 2); }); } catch (e) {}
+    if ($("content-reset-btn")) $("content-reset-btn").addEventListener("click", function () {
+      try { ta.value = JSON.stringify(RF.content.DEFAULTS, null, 2); if ($("content-status")) $("content-status").textContent = "已载入默认内容"; } catch (e) {}
+    });
+    if ($("content-save-local")) $("content-save-local").addEventListener("click", function () {
+      var parsed;
+      try { parsed = JSON.parse(ta.value); } catch (e) { ta.classList.add("is-err"); if (RF.fx) RF.fx.toast("JSON 格式错误，无法保存", "error"); return; }
+      ta.classList.remove("is-err");
+      try { RF.content.setLocalOverride(parsed); if (RF.fx) RF.fx.toast("已存本机（仅此设备生效）", "success"); if ($("content-status")) $("content-status").textContent = "本机已保存"; } catch (e) { if (RF.fx) RF.fx.toast("本机保存失败", "error"); }
+    });
+    if ($("content-save-repo")) $("content-save-repo").addEventListener("click", function () {
+      var parsed;
+      try { parsed = JSON.parse(ta.value); } catch (e) { ta.classList.add("is-err"); if (RF.fx) RF.fx.toast("JSON 格式错误，无法提交", "error"); return; }
+      ta.classList.remove("is-err");
+      if (RF.fx) RF.fx.toast("正在提交到仓库…", "info");
+      dispatchContentToRepo(parsed);
+    });
+  }
+
+  function dispatchContentToRepo(parsed) {
+    var settled = false;
+    function cleanup() { try { RF.bus.off("sync:ok", onOk); RF.bus.off("sync:fail", onFail); } catch (e) {} }
+    function onOk(p) { if (p && p.kind === "content-update") { settled = true; cleanup(); if (RF.fx) RF.fx.toast("已提交仓库 ✅ 全设备生效", "success"); if ($("content-status")) $("content-status").textContent = "已提交仓库"; } }
+    function onFail(p) { if (p && p.kind === "content-update") { settled = true; cleanup(); if (RF.fx) RF.fx.toast("提交仓库失败（检查网络 / 同步通道）", "error"); } }
+    try { RF.bus.on("sync:ok", onOk); RF.bus.on("sync:fail", onFail); } catch (e) {}
+    try { S().dispatchViaProxy("content-update", { content: parsed }); } catch (e) { settled = true; cleanup(); if (RF.fx) RF.fx.toast("提交失败", "error"); }
+    setTimeout(function () { if (!settled) { settled = true; cleanup(); if (RF.fx) RF.fx.toast("提交超时，请稍后重试", "error"); } }, 16000);
   }
 
   RF.pages = RF.pages || {};
