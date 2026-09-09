@@ -17,6 +17,8 @@
    * · §8.7 表格（含载荷定义）的 14 个全部在列；
    * · §5.2 常量清单另有 pet:speak / pet:stateChange / coupon:used / event:rolled 四个，
    *   同样在列（并集 = 18 个）。缺了它们 C 组的 coupon 核销与 B 组的精灵气泡无法发事件。
+   * · 另有 4 个扩展事件 pet:applyDelta / pet:revive / scene:weather / day:reset，
+   *   为本轮内部解耦（system→system / system→UI 改走 bus）而追加；18 个基线事件保持冻结不变。
    * @type {Object<string,string>}
    */
   var EVENTS = {
@@ -36,6 +38,10 @@
     "achievement:unlocked": "achievement:unlocked",
     "event:rolled": "event:rolled",
     "scene:periodChange": "scene:periodChange",
+    "pet:applyDelta": "pet:applyDelta",
+    "pet:revive": "pet:revive",
+    "scene:weather": "scene:weather",
+    "day:reset": "day:reset",
     "sync:ok": "sync:ok",
     "sync:fail": "sync:fail"
   };
