@@ -107,24 +107,6 @@
   <div id="overlay-root"></div>
   <div id="toast" class="g-toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="register-sw.js"></script>
-  <!-- ⚠️ 脚本加载顺序固定，4 个页面必须完全一致（设计文档 §8.2） -->
-  <script src="js/core/util.js"></script>
-  <script src="js/core/bus.js"></script>
-  <script src="js/core/storage.js"></script>
-  <script src="js/data/schema.js"></script>
-  <script src="js/data/store.js"></script>
-  <script src="js/systems/pet.js"></script>
-  <script src="js/systems/garden.js"></script>
-  <script src="js/systems/coupon.js"></script>
-  <script src="js/systems/punishment.js"></script>
-  <script src="js/systems/rpg.js"></script>
-  <script src="js/systems/countdown.js"></script>
-  <script src="js/systems/habits.js"></script>
-  <script src="js/ui/scene.js"></script>
-  <script src="js/ui/fx.js"></script>
-  <script src="js/ui/components.js"></script>
-  <script src="js/pages/shop.js"></script>
-  <script>RF.pages.shop.init();</script>
+  <script src="js/core/boot.js"></script>
 </body>
 </html>
