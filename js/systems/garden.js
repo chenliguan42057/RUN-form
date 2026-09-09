@@ -52,7 +52,6 @@
     f.wateredDay = U().dayKey();
     store().saveGarden({ flowers: g.flowers });
     var bloomed = f.stage >= 4 && before < 4;
-    try { B().emit("garden:bloom", { planId: planId, stage: f.stage, bloomed: bloomed }); } catch (e) {}
     return { stage: f.stage, bloomed: bloomed, variety: f.variety };
   }
 
@@ -109,7 +108,7 @@
   }
 
   function celebrate() {
-    try { if (RF.fx && RF.fx.petalRain) RF.fx.petalRain(2600); } catch (e) {}
+    try { B().emit("garden:bloom", { duration: 2600 }); } catch (e) {}
   }
 
   function findPlan(id) {
@@ -121,7 +120,7 @@
 
   try {
     B().on("checkin:done", function (p) {
-      try { if (p && p.planId) { water(p.planId); if (bloomToday() && RF.fx && RF.fx.petalRain) RF.fx.petalRain(1800); } } catch (e) {}
+      try { if (p && p.planId) { water(p.planId); if (bloomToday()) B().emit("garden:bloom", { duration: 1800 }); } } catch (e) {}
     });
   } catch (e) {}
 
