@@ -1,509 +1,235 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-period="morning">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#060a16" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#87CEEB" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="星河契约" />
-  <title>星图 · 星河契约</title>
+  <meta name="apple-mobile-web-app-title" content="阳光花园" />
+  <title>花园管理 · 阳光花园</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
-  <!-- v6 主题防闪：必须在 styles.css 之前落 data-theme，否则会先闪一帧默认色 -->
+
   <script>
     (function () {
       try {
-        var mode = "auto";
-        var value = "";
-        var raw = localStorage.getItem("runform_theme");
-        if (raw) {
-          var o = JSON.parse(raw);
-          if (o && typeof o === "object") {
-            mode = o.mode === "manual" ? "manual" : "auto";
-            value = typeof o.value === "string" ? o.value : "";
-          }
-        }
-        var t = mode === "manual" && value ? value : "";
-        if (!t) {
-          var h = new Date().getHours();
-          t = h < 5 ? "polar" : h < 8 ? "dawn" : h < 18 ? "origin" : "midnight";
-        }
-        if (t && t !== "origin") document.documentElement.setAttribute("data-theme", t);
-      } catch (e) {
-        /* 读不到就用默认主题，绝不因此白屏 */
-      }
+        var h = new Date().getHours();
+        var p = h < 6 ? "night" : h < 9 ? "sunrise" : h < 12 ? "morning"
+              : h < 14 ? "noon" : h < 18 ? "golden" : h < 20 ? "dusk" : "night";
+        var SKY = {
+          sunrise: ["#FFD1B3", "#FFB6C1"], morning: ["#87CEEB", "#BFEFFF"],
+          noon: ["#FFE66D", "#FFF3B0"], golden: ["#FFE9A8", "#98FB98"],
+          dusk: ["#FFA07A", "#E6E6FA"], night: ["#1B2A5B", "#3D5A98"]
+        };
+        var s = SKY[p], r = document.documentElement;
+        r.setAttribute("data-period", p);
+        r.style.setProperty("--g-sky-from", s[0]);
+        r.style.setProperty("--g-sky-to", s[1]);
+      } catch (e) { /* 交给 tokens.css 默认值 */ }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/base.css" />
+  <link rel="stylesheet" href="styles/scene.css" />
+  <link rel="stylesheet" href="styles/pet.css" />
+  <link rel="stylesheet" href="styles/garden.css" />
+  <link rel="stylesheet" href="styles/ui.css" />
+  <link rel="stylesheet" href="styles/shop.css" />
 </head>
 <body>
-  <main class="container" id="app-root">
-    <!-- 顶部胶囊导航：由 components.js 的 uiNav('manage') 注入 -->
-    <div id="nav-slot"></div>
+  <div class="g-scene" id="scene-root" aria-hidden="true">
+    <div class="g-scene__sky"></div>
+    <div class="g-scene__hills"></div>
+    <div class="g-scene__grass"></div>
+  </div>
 
-    <header class="hero hero-small sky-hero">
-      <div class="sky-hero-text">
-        <h1 class="hero-title">我的星图</h1>
-        <p class="hero-subtitle" id="sky-poem">每一个计划，都是一颗与自己缔结的星。</p>
-      </div>
-      <!-- 技术性设置全部收进这个抽屉，主视图只留星空 -->
-      <button
-        type="button"
-        class="gear-btn"
-        id="settings-btn"
-        aria-haspopup="dialog"
-        aria-controls="settings-drawer"
-        aria-expanded="false"
-        title="观星台设置"
-      >
-        <span class="gear-icon" aria-hidden="true">✦</span>
-        <span class="sr-only">观星台设置</span>
-      </button>
+  <nav class="g-nav" id="g-nav" aria-label="主导航">
+    <a class="g-nav__link" href="index.html">🏡 花园</a>
+    <a class="g-nav__link g-nav__link--active" href="manage.html">📝 管理</a>
+    <a class="g-nav__link" href="shop.html">🧺 市集</a>
+    <a class="g-nav__link" href="stats.html">📖 档案</a>
+  </nav>
+
+  <main class="g-main" id="app-root">
+    <header class="g-hero">
+      <h1 class="g-hero__title">花园管理</h1>
+      <p class="g-hero__sub">把每天想坚持的事，变成花园里的一朵花</p>
     </header>
 
-    <!-- ==================== 主视图：星图画布 ==================== -->
-    <section class="card sky-card">
-      <div class="sky-card-head">
-        <div id="sky-meta-slot"><!-- uiSkyMeta 注入 --></div>
-        <button type="button" class="btn btn-vg-gold btn-new-star" id="new-star-btn">
-          ＋ 缔结新星
-        </button>
+    <!-- 隐私红线提示（主理人决策 10，必须常驻可见） -->
+    <p class="u-hint u-center" id="privacy-hint">
+      ⚠️ 同步到仓库的数据是<strong>公开的</strong>，别写隐私。
+    </p>
+
+    <!-- Tab 切换 -->
+    <div class="g-tabs" id="tab-bar" role="tablist">
+      <button type="button" class="g-tabs__tab is-active" data-tab="tasks" role="tab">🌷 任务表</button>
+      <button type="button" class="g-tabs__tab" data-tab="settings" role="tab">⚙️ 设置</button>
+      <button type="button" class="g-tabs__tab" data-tab="push" role="tab">🔔 推送配置</button>
+    </div>
+
+    <!-- ============ Tab 1 · 任务表 ============ -->
+    <section class="g-card" id="tab-tasks" data-panel="tasks">
+      <div class="g-card__head u-row u-row--between">
+        <h2 class="g-card__title">🌷 我的任务</h2>
+        <button type="button" class="u-btn u-btn--primary u-btn--sm" id="add-plan-btn">＋ 新增</button>
       </div>
 
-      <div id="sky-map-slot"><!-- uiStarMap 注入 --></div>
-
-      <p class="sky-hint">
-        点一颗星可以改写它的契约 · 越坚持，它越亮 · 停用的星会熄灭但不会消失
-      </p>
-    </section>
-
-    <!-- ==================== 备忘录（一次性临时事项提醒） ==================== -->
-    <section class="card memo-card">
-      <div class="card-head">
-        <h2 class="card-title">📌 备忘录</h2>
-        <p class="memo-sub">记一条临时事项，到点提醒你（钉钉 + 站内提示双通道）</p>
-      </div>
-
-      <form id="memo-form" class="checkin-form memo-form">
-        <div class="field-row">
-          <div>
-            <label for="memo-title" class="field-label">事项</label>
-            <input
-              type="text"
-              id="memo-title"
-              class="input"
-              maxlength="60"
-              placeholder="如：周五 14:00 交房租"
-              autocomplete="off"
-            />
-          </div>
-          <div>
-            <label for="memo-due" class="field-label">到期时间</label>
-            <input type="datetime-local" id="memo-due" class="input" />
-          </div>
+      <!-- 新建 / 编辑表单 -->
+      <form class="g-form" id="plan-form" hidden>
+        <input type="hidden" id="plan-id" value="" />
+        <label class="g-form__row">
+          <span class="g-form__label">任务名</span>
+          <input class="g-input" type="text" id="plan-name" maxlength="30" placeholder="比如：晨跑 20 分钟" />
+        </label>
+        <div class="g-form__row">
+          <span class="g-form__label">图标</span>
+          <div id="plan-icon-picker"><!-- RF.ui.iconPicker 注入 --></div>
         </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-vg-gold" id="memo-add-btn">记下</button>
+        <div class="g-form__row u-row u-row--wrap">
+          <label class="g-form__inline">
+            <span class="g-form__label">频率</span>
+            <select class="g-input" id="plan-freq">
+              <option value="daily">每天</option>
+              <option value="weekly">每周</option>
+              <option value="monthly">每月</option>
+            </select>
+          </label>
+          <label class="g-form__inline">
+            <span class="g-form__label">时间</span>
+            <input class="g-input" type="time" id="plan-time" value="08:00" />
+          </label>
+        </div>
+        <div class="g-form__row u-row u-row--wrap">
+          <label class="g-form__inline">
+            <span class="g-form__label">难度 1-5</span>
+            <input class="g-input u-num" type="number" id="plan-difficulty" min="1" max="5" value="3" />
+          </label>
+          <label class="g-form__inline">
+            <span class="g-form__label">预估分钟</span>
+            <input class="g-input u-num" type="number" id="plan-est" min="1" max="240" value="5" />
+          </label>
+        </div>
+        <label class="g-form__row g-form__row--switch">
+          <span class="g-form__label">核心任务 ⭐</span>
+          <input type="checkbox" id="plan-core" checked />
+          <span class="u-hint">关掉后未完成也不算断签，但那朵花不会开</span>
+        </label>
+        <label class="g-form__row g-form__row--switch">
+          <span class="g-form__label">启用</span>
+          <input type="checkbox" id="plan-enabled" checked />
+        </label>
+        <div class="u-row">
+          <button type="submit" class="u-btn u-btn--primary" id="plan-save">保存</button>
+          <button type="button" class="u-btn u-btn--ghost" id="plan-cancel">取消</button>
         </div>
       </form>
 
-      <div id="memo-list"><!-- app2.js 渲染 --></div>
+      <ul class="g-plan-list" id="plan-list"></ul>
+      <p class="u-hint" id="plan-empty" hidden>还没有任务，点右上角「＋ 新增」种下第一颗种子。</p>
+
+      <div class="g-card__head u-mt-md">
+        <h3 class="g-card__title">📦 快速模板</h3>
+      </div>
+      <div class="u-row u-row--wrap" id="plan-templates">
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm" data-tpl="morning">🌅 晨间三件套</button>
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm" data-tpl="health">💪 健康基础</button>
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm" data-tpl="study">📚 学习专注</button>
+      </div>
     </section>
 
-    <footer class="footer">
-      <a id="back-btn" class="btn btn-vg-blue" href="index.html">回到天文台</a>
-      <p>星河契约 · RUN-form · 数据存于本地浏览器</p>
+    <!-- ============ Tab 2 · 设置 ============ -->
+    <section class="g-card" id="tab-settings" data-panel="settings" hidden>
+      <h2 class="g-card__title">⚙️ 设置</h2>
+
+      <label class="g-form__row">
+        <span class="g-form__label">精灵名字</span>
+        <input class="g-input" type="text" id="pet-name" maxlength="12" placeholder="小光" />
+      </label>
+
+      <div class="g-form__row u-row u-row--wrap">
+        <label class="g-form__inline">
+          <span class="g-form__label">每日饮水目标（ml）</span>
+          <input class="g-input u-num" type="number" id="water-goal" min="500" max="5000" step="100" value="2000" />
+        </label>
+        <label class="g-form__inline">
+          <span class="g-form__label">番茄钟（分钟）</span>
+          <input class="g-input u-num" type="number" id="focus-minutes" min="5" max="90" step="5" value="25" />
+        </label>
+      </div>
+
+      <label class="g-form__row g-form__row--switch">
+        <span class="g-form__label">音效</span>
+        <input type="checkbox" id="opt-sound" checked />
+      </label>
+      <label class="g-form__row g-form__row--switch">
+        <span class="g-form__label">减少动效</span>
+        <input type="checkbox" id="opt-reduce-motion" />
+      </label>
+      <label class="g-form__row g-form__row--switch">
+        <span class="g-form__label">不同步 note（感想不外传）</span>
+        <input type="checkbox" id="opt-no-note" />
+        <span class="u-hint">开启后同步到仓库前会清空打卡备注，只留完成情况</span>
+      </label>
+
+      <hr class="g-hr" />
+
+      <h3 class="g-card__title">🔄 同步</h3>
+      <p class="u-hint">上次同步：<span id="last-sync">从未</span></p>
+      <label class="g-form__row">
+        <span class="g-form__label">同步代理地址</span>
+        <input class="g-input" type="url" id="proxy-url" placeholder="https://runform-sync.3341644038.workers.dev" />
+      </label>
+      <label class="g-form__row">
+        <span class="g-form__label">本机 PAT（仅存本地，绝不出网）</span>
+        <input class="g-input" type="password" id="pat-input" autocomplete="off" placeholder="留空则走代理通道" />
+      </label>
+      <div class="u-row">
+        <button type="button" class="u-btn u-btn--primary" id="sync-now-btn">立即同步</button>
+        <button type="button" class="u-btn u-btn--ghost" id="pull-now-btn">拉取仓库状态</button>
+      </div>
+    </section>
+
+    <!-- ============ Tab 3 · 推送配置 ============ -->
+    <section class="g-card" id="tab-push" data-panel="push" hidden>
+      <h2 class="g-card__title">🔔 推送配置</h2>
+      <p class="u-hint">GitHub Actions 高峰期会迟到，所以按「目标时间 − 提前量」触发，再补睡到点。</p>
+
+      <label class="g-form__row">
+        <span class="g-form__label">提前量（分钟）</span>
+        <input class="g-input u-num" type="number" id="lead-minutes" min="0" max="120" step="1" value="30" />
+      </label>
+
+      <!-- 校准建议：数据来自 data/push-state.json 的 sent 记录 -->
+      <div class="g-calib" id="calib-box">
+        <p class="u-sm">最近 10 条平均迟到 <strong class="u-num" id="avg-late">—</strong> 分钟</p>
+        <p class="u-sm">建议提前量：<strong class="u-num" id="suggested-lead">—</strong> 分钟</p>
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm" id="apply-suggest-btn">应用建议</button>
+      </div>
+
+      <ul class="g-slot-list" id="slot-list">
+        <!-- 由 js/pages/manage.js 按 RF.schema.PUSH_SLOTS 渲染 6 行：
+             [开关] 槽位名 [目标时间 input[type=time]] [昨天实际送达] -->
+      </ul>
+
+      <div class="u-row u-mt-md">
+        <button type="button" class="u-btn u-btn--primary" id="save-push-btn">保存推送配置</button>
+        <button type="button" class="u-btn u-btn--ghost" id="test-push-btn">测试推送</button>
+      </div>
+      <p class="u-hint">默认只开 4 个槽（07:00 / 21:30 / 22:30 / 00:00），12:00 与 18:00 默认关闭。</p>
+    </section>
+
+    <footer class="g-footer">
+      阳光花园 v2 · 数据存于本地浏览器 · 同步到仓库的数据是公开的，别写隐私
     </footer>
   </main>
 
-  <!-- ==================== 星体编辑舱（新增 / 编辑共用） ==================== -->
-  <div class="modal" id="star-modal" hidden>
-    <div class="modal-backdrop" data-act="close-star"></div>
-    <div
-      class="modal-panel"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="star-modal-title"
-    >
-      <header class="modal-head">
-        <h2 class="modal-title" id="star-modal-title">缔结新星</h2>
-        <button type="button" class="modal-close" id="star-close" data-act="close-star">
-          <span aria-hidden="true">×</span><span class="sr-only">关闭</span>
-        </button>
-      </header>
-
-      <div class="modal-body">
-        <div id="star-brief-slot"><!-- uiStarBrief 注入 --></div>
-
-        <!-- 计划表单：v2/v3 全部 id 原样保留，仅换了容器与文案 -->
-        <form id="plan-form" class="checkin-form">
-          <label for="plan-name" class="field-label">星名</label>
-          <input type="text" id="plan-name" class="input" placeholder="如：跑步" autocomplete="off" />
-
-          <label class="field-label field-label-gap">星徽</label>
-          <div id="icon-picker-slot"><!-- uiIconPicker 注入 --></div>
-
-          <label class="field-label field-label-gap">星色</label>
-          <div id="theme-picker-slot"><!-- uiThemePicker 注入 --></div>
-
-          <label for="plan-desc" class="field-label field-label-gap">一句话契约（可选）</label>
-          <input
-            type="text"
-            id="plan-desc"
-            class="input"
-            maxlength="60"
-            placeholder="如：五公里，慢一点也没关系"
-            autocomplete="off"
-          />
-
-          <label for="plan-image" class="field-label field-label-gap">配图（可选，随星图同步到云端）</label>
-          <div class="image-upload">
-            <input type="file" id="plan-image" class="input-file" accept="image/*" />
-            <div class="image-preview" id="plan-image-preview" hidden></div>
-            <button type="button" class="mini-btn" id="plan-image-clear" hidden>移除图片</button>
-          </div>
-
-          <div class="field-row field-label-gap">
-            <div>
-              <label for="plan-freq" class="field-label">周期</label>
-              <select id="plan-freq" class="input">
-                <option value="daily">每日</option>
-                <option value="weekly">每周</option>
-                <option value="monthly">每月</option>
-              </select>
-            </div>
-            <div>
-              <label for="plan-time" class="field-label">亮起时刻</label>
-              <input type="time" id="plan-time" class="input" value="08:00" />
-            </div>
-          </div>
-
-          <div id="weekday-wrap" hidden>
-            <label for="plan-weekday" class="field-label field-label-gap">星期</label>
-            <!-- ⚠️ value 是 Python 口径：周一 = 0，与 data/plans.json、提醒脚本完全一致 -->
-            <select id="plan-weekday" class="input">
-              <option value="0">周一</option>
-              <option value="1">周二</option>
-              <option value="2">周三</option>
-              <option value="3">周四</option>
-              <option value="4">周五</option>
-              <option value="5">周六</option>
-              <option value="6">周日</option>
-            </select>
-          </div>
-
-          <div id="date-wrap" hidden>
-            <label for="plan-date" class="field-label field-label-gap">日期（每月第几日）</label>
-            <input type="number" id="plan-date" class="input" min="1" max="31" value="1" />
-          </div>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="plan-enabled" checked />
-            <span>让它亮着（取消勾选 ＝ 暂时熄灭，数据不会丢）</span>
-          </label>
-
-          <div class="form-actions">
-            <button type="submit" class="btn btn-vg-gold" id="plan-submit">缔结</button>
-            <a href="#" id="plan-cancel" class="link-cancel" hidden>取消</a>
-          </div>
-
-          <div class="danger-zone" id="plan-danger" hidden>
-            <button type="button" class="extinguish-btn" id="plan-delete">熄灭此星</button>
-            <span class="danger-note">熄灭后这颗星会从夜空中消失，记录不可恢复。</span>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== 观星台设置抽屉 ==================== -->
-  <div class="drawer" id="settings-drawer" hidden>
-    <div class="drawer-backdrop" data-act="close-settings"></div>
-    <aside
-      class="drawer-panel"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="drawer-title"
-    >
-      <header class="drawer-head">
-        <h2 class="drawer-title" id="drawer-title">观星台设置</h2>
-        <button
-          type="button"
-          class="modal-close"
-          id="settings-close"
-          data-act="close-settings"
-        >
-          <span aria-hidden="true">×</span><span class="sr-only">关闭</span>
-        </button>
-      </header>
-
-      <div class="drawer-body">
-        <!-- 同步到 GitHub（Token 只存本机浏览器；v2 id 全部保留） -->
-        <section class="drawer-sec" id="sync-card">
-          <h3 class="drawer-sec-title">🔄 同步到仓库</h3>
-          <p class="notice-warn">
-            提醒脚本读的是仓库里的 <code>data/plans.json</code>，不是浏览器里的数据。
-            <strong>改动星图后需要同步一次</strong>，钉钉提醒才会跟着变。
-          </p>
-
-          <label for="pat-input" class="field-label">Personal Access Token</label>
-          <input
-            type="password"
-            id="pat-input"
-            class="input"
-            placeholder="ghp_xxx 或 github_pat_xxx"
-            autocomplete="off"
-          />
-          <p class="setting-note">
-            Token 仅存本机浏览器 localStorage，<strong>不发往第三方</strong>；填好后会自动同步。
-            权限：Classic 勾 <code>repo</code>；Fine-grained 给
-            <code>Contents: read &amp; write</code> + <code>Metadata: read</code>。
-            安全提示：
-            <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">定期在 GitHub 轮换</a>
-            可降低泄露风险；如怀疑 token 已暴露，应立即在 GitHub 撤销并重新生成。
-          </p>
-
-          <label for="proxy-url-input" class="field-label">同步代理地址（免填 Token，可选）</label>
-          <input
-            type="url"
-            id="proxy-url-input"
-            class="input"
-            placeholder="https://runform-sync.你的子域.workers.dev"
-            autocomplete="off"
-          />
-          <p class="setting-note">
-            不想在手机上填 40 位 Token？部署 <code>cloudflare/</code> 里的无令牌代理后，
-            把它的地址填这里（或留空、由内置地址自动启用）。代理持有 PAT，站点永不接触 Token，手机端零配置即可同步、到点推钉钉。
-          </p>
-
-          <div class="form-actions">
-            <button type="button" class="btn btn-vg-blue" id="sync-btn">同步到仓库</button>
-          </div>
-
-          <p class="setting-note" id="last-sync-line">
-            最近同步：<span id="last-sync-time">尚未同步</span>
-            · <a href="#" id="check-cloud-sync">检查云端</a>
-          </p>
-        </section>
-
-        <!-- 备份与恢复 -->
-        <section class="drawer-sec" id="backup-card">
-          <h3 class="drawer-sec-title">💾 备份与恢复</h3>
-          <p class="setting-note">
-            导出内容包含 <strong>计划 + 台账 + 偏好</strong>，
-            <strong>不含 Token</strong>，可放心保存或转移到别的浏览器。
-          </p>
-
-          <div class="form-actions">
-            <button type="button" class="btn btn-vg-teal" id="export-btn">导出备份 JSON</button>
-          </div>
-
-          <label for="import-file" class="field-label field-label-gap">选择备份文件</label>
-          <input type="file" id="import-file" class="input" accept="application/json,.json" />
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="import-merge" checked />
-            <span>合并导入（按 id 合并，不勾选 ＝ 整体覆盖）</span>
-          </label>
-
-          <div class="form-actions">
-            <button type="button" class="btn btn-vg-blue" id="import-btn">导入</button>
-          </div>
-        </section>
-
-        <!-- 界面偏好 -->
-        <section class="drawer-sec" id="prefs-card">
-          <h3 class="drawer-sec-title">🎛 观星偏好</h3>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="pref-manual" checked />
-            <span>在天文台显示「点亮」按钮</span>
-          </label>
-
-          <label for="pref-heatmap-source" class="field-label field-label-gap">星点图数据来源</label>
-          <select id="pref-heatmap-source" class="input">
-            <option value="all">全部来源（提醒送达 + 手动点亮）</option>
-            <option value="auto">仅提醒送达</option>
-            <option value="manual">仅手动点亮</option>
-          </select>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="pref-reduce-motion" />
-            <span>减少动效（星点闪烁 / 进场动画 / 数字滚动全部关闭）</span>
-          </label>
-          <p class="setting-note">
-            系统若已开启「减少动态效果」，此处无论怎么设置都会自动降级。
-          </p>
-        </section>
-
-        <!-- v6 · 天色（四季主题） -->
-        <section class="drawer-sec" id="theme-card">
-          <h3 class="drawer-sec-title">🌗 天色</h3>
-          <div id="theme-slot-v6"><!-- uiThemeSwitch 注入 --></div>
-        </section>
-
-        <!-- v6 · 感官：静默总开关 + 白噪音 -->
-        <section class="drawer-sec" id="sensory-card">
-          <h3 class="drawer-sec-title">🔊 声音与触感</h3>
-          <label class="checkbox-row">
-            <input type="checkbox" id="pref-silent" />
-            <span>静默模式（不出声、不震动，只留画面）</span>
-          </label>
-          <p class="setting-note">
-            静默是一票否决：开着它，下面的白噪音与所有打卡音效都不会响。
-          </p>
-          <div id="wn-slot" class="field-label-gap"><!-- uiWhiteNoise 注入 --></div>
-        </section>
-
-        <!-- v6 · 环境动效 + 星幕：能力不支持时整块由 app2.js 隐藏 -->
-        <section class="drawer-sec" id="ambient-card" hidden>
-          <h3 class="drawer-sec-title">🌌 环境动效</h3>
-          <label class="checkbox-row">
-            <input type="checkbox" id="pref-ambient" />
-            <span>让背景的星缓慢流动</span>
-          </label>
-          <p class="setting-note">
-            默认关闭。不手动开的话，只有「充电中 + Wi-Fi」时才会自己亮起来；
-            帧率掉下去会自动减粒子，再掉就自己停。
-          </p>
-        </section>
-
-        <section class="drawer-sec" id="screensaver-card" hidden>
-          <h3 class="drawer-sec-title">🕯 星幕</h3>
-          <label class="checkbox-row">
-            <input type="checkbox" id="pref-screensaver" />
-            <span>闲置 3 分钟后进入星幕（时钟 + 连续天数）</span>
-          </label>
-          <div class="poster-acts">
-            <button type="button" class="btn btn-ghost btn-sm" id="ss-now">现在就进星幕</button>
-          </div>
-          <p class="setting-note">
-            星幕期间会请求保持屏幕常亮；退出时立刻释放。不支持的浏览器看不到这一节。
-          </p>
-        </section>
-
-        <!-- v6 · 星图互鉴 -->
-        <section class="drawer-sec" id="friend-card">
-          <h3 class="drawer-sec-title">🔭 星图互鉴</h3>
-          <div id="fm-slot"><!-- uiFriendCompare 注入 --></div>
-        </section>
-
-        <!-- 星光台账 -->
-        <section class="drawer-sec" id="ledger-card">
-          <details class="collapsible">
-            <summary>📒 星光台账</summary>
-            <div class="table-wrap">
-              <table class="ledger-table">
-                <thead>
-                  <tr>
-                    <th>序号</th>
-                    <th>日期时间</th>
-                    <th>星</th>
-                    <th>来源</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody id="ledger-body"><!-- 由 app2.js 动态渲染 --></tbody>
-              </table>
-              <p class="empty-hint" id="ledger-empty" hidden>还没有点亮记录，去天文台点亮一颗吧。</p>
-            </div>
-            <button type="button" class="btn btn-vg-danger" id="clear-all-btn">清空全部记录</button>
-          </details>
-        </section>
-
-        <!-- 语录库扩充：网页端贴句子 → repository_dispatch → add-quotes.yml 由 Actions 写回仓库 -->
-        <section class="drawer-sec" id="quotes-card">
-          <h3 class="drawer-sec-title">✍️ 扩充语录库</h3>
-
-          <div class="quote-status">
-            <div class="quote-status-tile">
-              <span class="quote-status-value" id="quote-total-count">—</span>
-              <span class="quote-status-label">语录库总条数</span>
-            </div>
-            <div class="quote-status-tile">
-              <span class="quote-status-value" id="quote-preview-count">0</span>
-              <span class="quote-status-label">本次将新增</span>
-            </div>
-            <div class="quote-status-tile">
-              <span class="quote-status-value" id="quote-duplicate-count">0</span>
-              <span class="quote-status-label">已有重复</span>
-            </div>
-          </div>
-
-          <div id="quote-duplicate-box" class="quote-dup-hint" hidden>
-            <strong>以下句子语录库里已经有了，提交会自动跳过：</strong>
-            <ul id="quote-duplicate-list"></ul>
-          </div>
-
-          <p class="setting-note">
-            每行一句，会<strong>追加到 <code>data/quotes.json</code> 末尾</strong>。
-            首页「星语」与早晚 09:10 / 21:10 两条钉钉推送共用这一份库，
-            <strong>条数越多，越久不重样</strong>。
-            与库里重复的句子会自动跳过；含
-            <code>&lt;</code> <code>&gt;</code> <code>&amp;</code> <code>"</code>
-            的行会被丢弃。
-          </p>
-
-          <label for="quote-input" class="field-label">新语录（每行一句）</label>
-          <textarea id="quote-input" class="textarea" rows="4"
-            placeholder="别停，你已经走了这么远。&#10;你现在做的一切，都在为将来的你铺路。"></textarea>
-
-          <p class="setting-note">
-            提交后 GitHub Actions 约 1 分钟写回仓库，Pages 重新发布后首页生效。
-          </p>
-
-          <div class="form-actions">
-            <button type="button" class="btn btn-vg-teal" id="add-quote-btn">添加到语录库</button>
-          </div>
-        </section>
-
-        <p class="drawer-about">
-          星河契约 · RUN-form v4 —— 无后端、无构建、无第三方依赖，
-          所有数据都躺在这台设备的浏览器里。
-        </p>
-      </div>
-    </aside>
-  </div>
-
-  <!-- v6 星屑画布（z-index 60，永不吃点击） -->
-  <canvas id="fx-layer" aria-hidden="true"></canvas>
-  <!-- v6 浮层挂载点（z-index 80，toast 仍在其上） -->
   <div id="overlay-root"></div>
+  <div id="toast" class="g-toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- 全局 toast 提示容器 -->
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-
-  <!-- PWA：注册 Service Worker（异步，不阻塞页面） -->
-  <script src="register-sw.js"></script>
-  <!-- 背景图 blur-up：高清图加载完后淡出低清占位 -->
-  <script>
-    (function () {
-      const img = new Image();
-      img.src = "assets/bg-vangogh-ocean.webp";
-      if (img.complete) {
-        document.body.classList.add("bg-ready");
-      } else {
-        img.addEventListener("load", function () {
-          document.body.classList.add("bg-ready");
-        });
-      }
-    })();
-  </script>
-  <!-- ⚠️ 加载顺序固定：store.js → v6 模块 → components.js → app2.js
-       星图页承载设置抽屉：四季主题 / 星轨背景 / 屏保 / 白噪音 / 星图互鉴的开关都在这儿。 -->
-  <script src="store.js"></script>
-  <script src="sensory.js"></script>
-  <script src="theme.js"></script>
-  <script src="rank.js"></script>
-  <script src="whitenoise.js"></script>
-  <script src="ambient.js"></script>
-  <script src="screensaver.js"></script>
-  <script src="friendmap.js"></script>
-  <script src="shortcuts.js"></script>
-  <script src="components.js"></script>
-  <script src="app2.js"></script>
+  <script src="js/core/boot.js"></script>
 </body>
 </html>
