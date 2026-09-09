@@ -246,7 +246,7 @@
   /* ---------------- 订阅玩法事件（模块加载即挂，bus 已先加载） ---------------- */
   if (RF.bus) {
     var E = RF.bus.EVENTS;
-    RF.bus.on(E.garden_bloom || "garden:bloom", function () { sound("bloom"); petalRain(1800); });
+    RF.bus.on(E.garden_bloom || "garden:bloom", function (p) { sound("bloom"); petalRain((p && p.duration) || 1800); });
     RF.bus.on(E.pet_stageUp || "pet:stageUp", function () { sound("bloom"); toast("精灵进化啦！", "success"); });
     RF.bus.on(E.coupon_granted || "coupon:granted", function (p) {
       sound("cheer"); toast("获得野餐篮 🧺", "success"); if (p && p.el) particlesAt(p.el, { count: 10 });
