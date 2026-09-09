@@ -436,7 +436,7 @@
         try { B().emit("day:perfect", { dayKey: today, streak: streakInfo().current }); } catch (e) {}
       }
       // 每日结算：断签惩罚（幂等）
-      try { if (RF.punishment && RF.punishment.applyDaily) RF.punishment.applyDaily(); } catch (e) {}
+      try { B().emit("day:reset"); } catch (e) {}
       return;
     }
     // 首次运行
