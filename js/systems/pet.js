@@ -244,6 +244,11 @@
     B().on("day:missed", function (d) { try { onMiss((d && d.days) || 1); } catch (e) {} });
   } catch (e) {}
 
+  try {
+    B().on("pet:applyDelta", function (p) { try { applyDelta(p && p.delta, p && p.reason); } catch (e) {} });
+    B().on("pet:revive", function (p) { try { revive(p && p.method); } catch (e) {} });
+  } catch (e) {}
+
   function findPlan(id) {
     if (!id) return null;
     var plans = store().loadPlans();
