@@ -9,7 +9,7 @@ name: 同步打卡数据
 #   · sync-memos：   备忘录（memos / tombstones.memos），v6.1 新增，独立走 data/memos.json
 on:
   repository_dispatch:
-    types: [sync-checkins, sync-memos]
+    types: [sync-checkins, sync-memos, content-update]
 
 # 赋予 GITHUB_TOKEN 写权限，用于提交 data/*.json
 permissions:
@@ -65,6 +65,7 @@ jobs:
           CHECKINS_JSON: ${{ toJson(github.event.client_payload.checkins) }}
           TOMBSTONES_JSON: ${{ toJson(github.event.client_payload.tombstones) }}
           MEMOS_JSON: ${{ toJson(github.event.client_payload.memos) }}
+          CONTENT_JSON: ${{ toJson(github.event.client_payload.content) }}
         run: |
           python3 - <<'PY'
           import os, json, time
@@ -183,6 +184,20 @@ jobs:
               repo_tomb[kind] = acc
               synced_at[kind] = now
               print(f"sync-memos：合并写入 {len(merged)} 条备忘录（累积墓碑 {len(dead)} 条）")
+          elif event_type == "content-update":
+              raw = os.environ.get("CONTENT_JSON", "")
+              try:
+                  obj = json.loads(raw)
+              except Exception as e:
+                  obj = None
+                  print("content-update：client_payload.content 解析失败，跳过：", e)
+              if isinstance(obj, dict):
+                  os.makedirs("data", exist_ok=True)
+                  with open(os.path.join("data", "content.json"), "w", encoding="utf-8") as f:
+                      json.dump(obj, f, ensure_ascii=False, indent=2)
+                  print("content-update：写入 data/content.json（%d 个一级键）" % len(obj))
+              else:
+                  print("content-update：payload 不是对象，跳过写入")
           else:
               raw_tomb = os.environ.get("TOMBSTONES_JSON", "null")
               try:
@@ -275,6 +290,8 @@ jobs:
           #     2) 前端热力图上的青色（提醒送达）格子凭空消失。
           if [ "$EVENT_TYPE" = "sync-memos" ]; then
             git add data/memos.json
+          elif [ "$EVENT_TYPE" = "content-update" ]; then
+            git add data/content.json
           else
             git add data/plans.json data/checkins.json
           fi
