@@ -1,217 +1,124 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-period="morning">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- 固定深色主题：告诉浏览器表单控件 / 滚动条也走深色 -->
-  <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#060a16" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#87CEEB" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="星河契约" />
-  <title>天文台 · 星河契约</title>
+  <meta name="apple-mobile-web-app-title" content="阳光花园" />
+  <title>阳光花园 · 今天也要开花呀</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
-  <!-- v6 主题防闪：必须在 styles.css 之前落 data-theme，否则会先闪一帧默认色 -->
+
+  <!-- 防闪白：CSS 加载前先按当前时段把天空色写到 :root，避免先白一帧（§6.3 第 5 条） -->
   <script>
     (function () {
       try {
-        var mode = "auto";
-        var value = "";
-        var raw = localStorage.getItem("runform_theme");
-        if (raw) {
-          var o = JSON.parse(raw);
-          if (o && typeof o === "object") {
-            mode = o.mode === "manual" ? "manual" : "auto";
-            value = typeof o.value === "string" ? o.value : "";
-          }
-        }
-        var t = mode === "manual" && value ? value : "";
-        if (!t) {
-          var h = new Date().getHours();
-          t = h < 5 ? "polar" : h < 8 ? "dawn" : h < 18 ? "origin" : "midnight";
-        }
-        if (t && t !== "origin") document.documentElement.setAttribute("data-theme", t);
-      } catch (e) {
-        /* 读不到就用默认主题，绝不因此白屏 */
-      }
+        var h = new Date().getHours();
+        var p = h < 6 ? "night" : h < 9 ? "sunrise" : h < 12 ? "morning"
+              : h < 14 ? "noon" : h < 18 ? "golden" : h < 20 ? "dusk" : "night";
+        var SKY = {
+          sunrise: ["#FFD1B3", "#FFB6C1"], morning: ["#87CEEB", "#BFEFFF"],
+          noon: ["#FFE66D", "#FFF3B0"], golden: ["#FFE9A8", "#98FB98"],
+          dusk: ["#FFA07A", "#E6E6FA"], night: ["#1B2A5B", "#3D5A98"]
+        };
+        var s = SKY[p], r = document.documentElement;
+        r.setAttribute("data-period", p);
+        r.style.setProperty("--g-sky-from", s[0]);
+        r.style.setProperty("--g-sky-to", s[1]);
+      } catch (e) { /* 读不到就交给 tokens.css 的默认值 */ }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/base.css" />
+  <link rel="stylesheet" href="styles/scene.css" />
+  <link rel="stylesheet" href="styles/pet.css" />
+  <link rel="stylesheet" href="styles/garden.css" />
+  <link rel="stylesheet" href="styles/ui.css" />
+  <link rel="stylesheet" href="styles/shop.css" />
 </head>
 <body>
-  <main class="container" id="app-root">
-    <!-- 顶部胶囊导航：由 components.js 的 uiNav('home') 注入 -->
-    <div id="nav-slot"></div>
+  <!-- 场景层：天空 / 云 / 彩虹 / 山丘 / 草地，动态元素由 js/ui/scene.js 注入 -->
+  <div class="g-scene" id="scene-root" aria-hidden="true">
+    <div class="g-scene__sky"></div>
+    <div class="g-scene__clouds" id="cloud-layer"></div>
+    <div class="g-scene__rainbow"></div>
+    <div class="g-scene__sun"></div>
+    <div class="g-scene__hills"></div>
+    <div class="g-scene__grass"></div>
+    <div class="g-scene__decor" id="decor-layer"></div>
+    <div class="g-scene__particles" id="particle-layer"></div>
+    <div class="g-scene__weather" id="weather-layer"></div>
+  </div>
 
-    <!-- 页头：观星台身份 + 时段旁白 + 日期 -->
-    <header class="hero">
-      <h1 class="hero-title">天文台</h1>
-      <p class="hero-subtitle" id="sky-poem">今夜也在这里，看着自己的星。</p>
-      <p class="hero-meta">
-        <span id="greeting">🌌 你好</span> · <span id="today-date">—</span>
+  <nav class="g-nav" id="g-nav" aria-label="主导航">
+    <a class="g-nav__link g-nav__link--active" href="index.html">🏡 花园</a>
+    <a class="g-nav__link" href="manage.html">📝 管理</a>
+    <a class="g-nav__link" href="shop.html">🧺 市集</a>
+    <a class="g-nav__link" href="stats.html">📖 档案</a>
+  </nav>
+
+  <main class="g-main" id="app-root">
+    <header class="g-hero">
+      <h1 class="g-hero__title">阳光花园</h1>
+      <p class="g-hero__sub" id="greeting">今天也要开花呀</p>
+      <p class="g-hero__meta">
+        <span id="today-date">—</span> · <span id="period-note">—</span>
       </p>
-      <!-- v6 段位徽章：独立槽位，不碰 renderHeader() 里那两段逻辑 -->
-      <p class="hero-meta" id="rank-slot"><!-- uiRankBadge 注入 --></p>
     </header>
 
-    <!-- 提醒数据降级提示（读不到 data/reminder-state.json 时出现） -->
-    <div class="chip-wrap" id="chip-wrap" hidden>
-      <span class="offline-chip" id="offline-chip"></span>
-    </div>
+    <!-- 精灵 + 四项状态条 -->
+    <section class="g-card g-card--pet" id="pet-card">
+      <div class="g-pet" id="pet-slot"><!-- systems/pet.js render() 注入 --></div>
+      <div class="g-pet__stats" id="pet-stats"><!-- 饱食 / 心情 / 能量 / 亲密 --></div>
+    </section>
 
-    <!-- 主卡：下一颗要点亮的星 + 今夜进度环 -->
-    <section class="card next-card theme-gold" id="next-card">
-      <div class="next-ring" id="next-ring"><!-- uiRing 注入 --></div>
+    <!-- 今日倒计时 + 里程碑 -->
+    <section class="g-card" id="countdown-card">
+      <h2 class="g-card__title">⏳ 今天还剩</h2>
+      <p class="g-countdown u-num" id="countdown-slot">--:--:--</p>
+      <p class="u-hint" id="countdown-milestone"></p>
+    </section>
 
-      <div class="next-body" id="next-body">
-        <p class="next-kicker">下一颗要点亮的星</p>
-        <h2 class="next-name">
-          <span class="next-icon" id="next-icon" aria-hidden="true">🌟</span>
-          <span id="next-name">—</span>
-        </h2>
-        <p class="next-desc" id="next-desc" hidden></p>
-        <p class="next-meta" id="next-meta">—</p>
-        <span class="next-count" id="next-countdown">—</span>
-        <div class="next-actions">
-          <!-- 「点亮」保留为二级按钮，可在星图页的设置抽屉里关闭 -->
-          <button type="button" class="btn btn-ghost btn-sm" id="manual-check-btn" hidden>
-            点亮
-          </button>
-          <a class="btn btn-primary btn-sm" href="manage.html#add">＋ 缔结新星</a>
-          <a class="btn btn-ghost btn-sm" href="manage.html">去星图</a>
-        </div>
+    <!-- 今日任务（N 朵花对应 N 个每日任务） -->
+    <section class="g-card" id="tasks-card">
+      <div class="g-card__head u-row u-row--between">
+        <h2 class="g-card__title">🌷 今日任务</h2>
+        <a class="u-btn u-btn--ghost u-btn--sm" href="manage.html">＋ 新增</a>
       </div>
+      <ul class="g-task-list" id="task-list"></ul>
+      <p class="u-hint" id="task-empty" hidden>还没有任务，去「管理」种下第一颗种子吧。</p>
+    </section>
 
-      <p class="empty-hint" id="next-empty" hidden>
-        <span class="empty-icon" aria-hidden="true">🌑</span>
-        你的星空还是一片暗区，去 <a href="manage.html">星图</a> 缔结第一颗星吧。
+    <!-- 花园 -->
+    <section class="g-card" id="garden-card">
+      <div class="g-card__head u-row u-row--between">
+        <h2 class="g-card__title">🌻 我的花园</h2>
+        <span class="u-badge" id="bloom-badge">0 / 0</span>
+      </div>
+      <div class="g-garden" id="garden-slot"></div>
+    </section>
+
+    <!-- 连续全勤 + 野餐篮进度 -->
+    <section class="g-card" id="streak-card">
+      <h2 class="g-card__title">🔥 连续全勤</h2>
+      <p class="g-streak u-num">
+        <span id="streak-current">0</span> 天 · 最佳 <span id="streak-best">0</span> 天
       </p>
+      <p class="u-hint" id="coupon-hint">再坚持几天，就能拿到野餐篮美食券啦。</p>
     </section>
 
-    <!-- v6 · 此刻的颜色：只在刚点亮一颗星之后出现，随手一点，不点也行 -->
-    <section class="card" id="mood-card" hidden>
-      <div class="card-head">
-        <h2 class="card-title">🎨 刚才那一下</h2>
-        <button type="button" class="mini-btn" id="mood-skip">不记了</button>
-      </div>
-      <div id="mood-slot"><!-- uiMoodPicker 注入 --></div>
-    </section>
-
-    <!-- v6 · 静坐一程（专注计时）：focus.js 按需注入后才渲染 -->
-    <section class="card" id="focus-card" hidden>
-      <div class="card-head">
-        <h2 class="card-title">🕯 静坐一程</h2>
-        <button type="button" class="mini-btn" id="focus-log-btn">看记录</button>
-      </div>
-      <div id="focus-slot"><!-- uiFocusDial 注入 --></div>
-      <div id="focus-log" hidden><!-- 近期专注记录 --></div>
-    </section>
-
-    <!-- 天象概览：四个天文指标 -->
-    <section class="card">
-      <div class="card-head">
-        <h2 class="card-title">🌌 今夜天象</h2>
-        <a class="mini-btn" href="stats.html">看星历</a>
-      </div>
-
-      <div class="stat-grid stat-grid--astro">
-        <div class="stat-tile theme-blue">
-          <span class="stat-glyph" aria-hidden="true">✦</span>
-          <div class="stat-astro-text">
-            <span class="stat-value" id="stat-active">0</span>
-            <span class="stat-label">已缔结星数</span>
-          </div>
-        </div>
-
-        <div class="stat-tile theme-teal" id="tile-today">
-          <span class="stat-glyph" aria-hidden="true">🌙</span>
-          <div class="stat-astro-text">
-            <span class="stat-value" id="stat-today">0</span>
-            <span class="stat-label">今夜待点亮</span>
-          </div>
-        </div>
-
-        <div class="stat-tile theme-gold stat-tile--comet">
-          <div class="stat-comet" id="comet-slot"><!-- uiComet 注入 --></div>
-          <div class="stat-astro-text">
-            <span class="stat-value" id="stat-streak">0</span>
-            <span class="stat-label">连续天数 · 彗尾</span>
-          </div>
-        </div>
-
-        <div class="stat-tile theme-violet stat-tile--moon">
-          <div class="stat-moon" id="moon-slot"><!-- uiMoonPhase 注入 --></div>
-          <div class="stat-astro-text">
-            <span class="stat-value" id="stat-rate">0%</span>
-            <span class="stat-label" id="moon-name">近 30 天盈亏</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 今晚的星轨 -->
-    <section class="card">
-      <h2 class="card-title">🛰 今晚的星轨</h2>
-      <ul class="rail" id="timeline"><!-- uiTimelineStar 注入 --></ul>
-      <div id="timeline-empty" hidden><!-- uiEmpty 注入 --></div>
-    </section>
-
-    <!-- 近 12 周星点图 -->
-    <section class="card">
-      <div class="card-head">
-        <h2 class="card-title">✨ 近 12 周星点</h2>
-        <a class="mini-btn" href="stats.html">查看全年</a>
-      </div>
-      <div id="mini-heatmap"><!-- uiStarHeatmap 注入 --></div>
-    </section>
-
-    <!-- 星语 -->
-    <section class="card quote-card">
-      <div id="daily-quote"><!-- uiSkyQuote 注入 --></div>
-    </section>
-
-    <footer class="footer">
-      <p>星河契约 · RUN-form · 数据存于本地浏览器</p>
+    <footer class="g-footer">
+      阳光花园 v2 · 数据存于本地浏览器 · 同步到仓库的数据是公开的，别写隐私
     </footer>
   </main>
 
-  <!-- v6 星屑画布（z-index 60，永不吃点击） -->
-  <canvas id="fx-layer" aria-hidden="true"></canvas>
-  <!-- v6 浮层挂载点（z-index 80，toast 仍在其上） -->
   <div id="overlay-root"></div>
+  <div id="toast" class="g-toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- 全局 toast 提示容器 -->
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-
-  <!-- PWA：注册 Service Worker（异步，不阻塞页面） -->
-  <script src="register-sw.js"></script>
-  <!-- 背景图 blur-up：高清图加载完后淡出低清占位 -->
-  <script>
-    (function () {
-      const img = new Image();
-      img.src = "assets/bg-vangogh-ocean.webp";
-      if (img.complete) {
-        document.body.classList.add("bg-ready");
-      } else {
-        img.addEventListener("load", function () {
-          document.body.classList.add("bg-ready");
-        });
-      }
-    })();
-  </script>
-  <!-- ⚠️ 加载顺序固定：store.js → v6 核心模块 → components.js → app.js
-       首页只同步加载核心 5 个（约 43KB，卡在 45KB 预算内）；
-       onboarding / focus / whitenoise / shortcuts / ambient / screensaver
-       由 app.js 的 loadModule() 按需注入，老用户永远不下载引导脚本。 -->
-  <script src="store.js"></script>
-  <script src="sensory.js"></script>
-  <script src="theme.js"></script>
-  <script src="rank.js"></script>
-  <script src="mood.js"></script>
-  <script src="celebrate.js"></script>
-  <script src="components.js"></script>
-  <script src="app.js"></script>
+  <script src="js/core/boot.js"></script>
 </body>
 </html>
