@@ -55,7 +55,7 @@
     var reward = 0;
     if (completed) {
       reward = Math.round(_focus.minutes * 2);
-      try { store().addPoints(reward, "番茄钟"); if (RF.pet) RF.pet.applyDelta({ energy: 10 }, "focus"); } catch (e) {}
+      try { store().addPoints(reward, "番茄钟"); if (RF.bus) RF.bus.emit("pet:applyDelta", { delta: { energy: 10 }, reason: "focus" }); } catch (e) {}
     }
     var h = ensureToday();
     h.focusLog = (h.focusLog || []).concat([{ startAt: _focus.startAt, minutes: _focus.minutes, completed: !!completed }]);
