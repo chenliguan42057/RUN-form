@@ -124,7 +124,7 @@
 
   function applyEvent(evt) {
     if (!evt) return { ok: false, effect: "" };
-    if (evt.delta) { try { if (RF.pet) RF.pet.applyDelta(evt.delta, "event"); } catch (e) {} }
+    if (evt.delta) { try { RF.bus.emit("pet:applyDelta", { delta: evt.delta, reason: "event" }); } catch (e) {} }
     try { B().emit("event:rolled", evt); } catch (e) {}
     return { ok: true, effect: evt.desc || "" };
   }
