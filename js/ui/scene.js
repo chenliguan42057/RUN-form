@@ -94,6 +94,9 @@
         var ratio = payload && typeof payload.ratio === "number" ? payload.ratio : 0;
         setWeather(ratioToKind(ratio));
       });
+      RF.bus.on("scene:weather", function (payload) {
+        try { setWeather(payload && payload.weather); } catch (e) {}
+      });
     }
 
     // 每 60s 重算时段（让夜间自动开萤火虫、白天自动关）
