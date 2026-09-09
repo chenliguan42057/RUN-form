@@ -1,221 +1,135 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-period="morning">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#060a16" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#87CEEB" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="星河契约" />
-  <title>星历 · 星河契约</title>
+  <meta name="apple-mobile-web-app-title" content="阳光花园" />
+  <title>花园档案 · 阳光花园</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
-  <!-- v6 主题防闪：必须在 styles.css 之前落 data-theme，否则会先闪一帧默认色 -->
+
   <script>
     (function () {
       try {
-        var mode = "auto";
-        var value = "";
-        var raw = localStorage.getItem("runform_theme");
-        if (raw) {
-          var o = JSON.parse(raw);
-          if (o && typeof o === "object") {
-            mode = o.mode === "manual" ? "manual" : "auto";
-            value = typeof o.value === "string" ? o.value : "";
-          }
-        }
-        var t = mode === "manual" && value ? value : "";
-        if (!t) {
-          var h = new Date().getHours();
-          t = h < 5 ? "polar" : h < 8 ? "dawn" : h < 18 ? "origin" : "midnight";
-        }
-        if (t && t !== "origin") document.documentElement.setAttribute("data-theme", t);
-      } catch (e) {
-        /* 读不到就用默认主题，绝不因此白屏 */
-      }
+        var h = new Date().getHours();
+        var p = h < 6 ? "night" : h < 9 ? "sunrise" : h < 12 ? "morning"
+              : h < 14 ? "noon" : h < 18 ? "golden" : h < 20 ? "dusk" : "night";
+        var SKY = {
+          sunrise: ["#FFD1B3", "#FFB6C1"], morning: ["#87CEEB", "#BFEFFF"],
+          noon: ["#FFE66D", "#FFF3B0"], golden: ["#FFE9A8", "#98FB98"],
+          dusk: ["#FFA07A", "#E6E6FA"], night: ["#1B2A5B", "#3D5A98"]
+        };
+        var s = SKY[p], r = document.documentElement;
+        r.setAttribute("data-period", p);
+        r.style.setProperty("--g-sky-from", s[0]);
+        r.style.setProperty("--g-sky-to", s[1]);
+      } catch (e) { /* 交给 tokens.css 默认值 */ }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/base.css" />
+  <link rel="stylesheet" href="styles/scene.css" />
+  <link rel="stylesheet" href="styles/pet.css" />
+  <link rel="stylesheet" href="styles/garden.css" />
+  <link rel="stylesheet" href="styles/ui.css" />
+  <link rel="stylesheet" href="styles/shop.css" />
 </head>
 <body>
-  <main class="container" id="app-root">
-    <!-- 顶部胶囊导航：由 components.js 的 uiNav('stats') 注入 -->
-    <div id="nav-slot"></div>
+  <div class="g-scene" id="scene-root" aria-hidden="true">
+    <div class="g-scene__sky"></div>
+    <div class="g-scene__hills"></div>
+    <div class="g-scene__grass"></div>
+  </div>
 
-    <header class="hero hero-small">
-      <h1 class="hero-title">星历</h1>
-      <p class="hero-subtitle">我的星途 · 一路点亮过的日子</p>
+  <nav class="g-nav" id="g-nav" aria-label="主导航">
+    <a class="g-nav__link" href="index.html">🏡 花园</a>
+    <a class="g-nav__link" href="manage.html">📝 管理</a>
+    <a class="g-nav__link" href="shop.html">🧺 市集</a>
+    <a class="g-nav__link g-nav__link--active" href="stats.html">📖 档案</a>
+  </nav>
+
+  <main class="g-main" id="app-root">
+    <header class="g-hero">
+      <h1 class="g-hero__title">花园档案</h1>
+      <p class="g-hero__sub">你走过的每一步，花园都记得</p>
+      <p class="g-hero__meta">
+        和 <span id="pet-name-label">小光</span> 一起
+        <span class="u-num" id="days-together">0</span> 天
+      </p>
     </header>
 
-    <div class="chip-wrap" id="chip-wrap" hidden>
-      <span class="offline-chip" id="offline-chip"></span>
-    </div>
-
-    <!-- 里程碑祝贺 -->
-    <div id="cheer-slot"><!-- uiCheer 注入 --></div>
-
-    <!-- v6 · 段位（C1）：#rank 是天文台徽章跳过来的锚点 -->
-    <section class="card" id="rank">
-      <h2 class="card-title">🎖 位阶</h2>
-      <div id="rank-card-slot"><!-- uiRankCard 注入 --></div>
+    <!-- 今日完成度环形进度 -->
+    <section class="g-card" id="ring-card">
+      <h2 class="g-card__title">🌞 今日完成度</h2>
+      <div class="g-ring" id="ring-slot"><!-- 由 stats.js 注入 SVG 环形进度 --></div>
+      <p class="u-hint u-center" id="ring-note">今天还没有开花</p>
     </section>
 
-    <!-- v6 · 阶段回望（C5） -->
-    <section class="card review-block" id="review-card">
-      <div id="review-slot"><!-- uiReviewBlock 注入 --></div>
-    </section>
-
-    <!-- 总览四宫格 -->
-    <section class="card">
-      <h2 class="card-title">🌌 星途总览</h2>
-      <div class="stat-grid">
-        <div class="stat-tile theme-gold">
-          <span class="stat-value" id="stat-streak">0</span>
-          <span class="stat-label">当前连续</span>
+    <!-- 连续天数 -->
+    <section class="g-card" id="streak-card">
+      <h2 class="g-card__title">🔥 连续全勤</h2>
+      <div class="u-row u-row--wrap" id="streak-slot">
+        <div class="g-stat">
+          <span class="g-stat__value u-num" id="streak-current">0</span>
+          <span class="g-stat__label">当前（天）</span>
         </div>
-        <div class="stat-tile theme-amber">
-          <span class="stat-value" id="stat-best">0</span>
-          <span class="stat-label">最佳连续</span>
+        <div class="g-stat">
+          <span class="g-stat__value u-num" id="streak-best">0</span>
+          <span class="g-stat__label">最佳（天）</span>
         </div>
-        <div class="stat-tile theme-teal">
-          <span class="stat-value" id="stat-days">0</span>
-          <span class="stat-label">亮着的日子</span>
+        <div class="g-stat">
+          <span class="g-stat__value u-num" id="total-checkins">0</span>
+          <span class="g-stat__label">累计打卡</span>
         </div>
-        <div class="stat-tile theme-violet">
-          <span class="stat-value" id="stat-total">0</span>
-          <span class="stat-label">累计触达</span>
+        <div class="g-stat">
+          <span class="g-stat__value u-num" id="total-points">0</span>
+          <span class="g-stat__label">累计积分</span>
         </div>
       </div>
     </section>
 
-    <!-- 星轨攀升：每个计划一条竖轨，连续越久升得越高 -->
-    <section class="card">
-      <h2 class="card-title">🚀 星轨攀升</h2>
-      <div id="track-slot"><!-- uiStarTrack 注入 --></div>
+    <!-- 近 12 周热力图 -->
+    <section class="g-card" id="heatmap-card">
+      <h2 class="g-card__title">🗓 近 12 周花开花落</h2>
+      <div class="g-heatmap" id="heatmap-slot"></div>
+      <p class="u-hint">颜色越深，那天开的花越多。</p>
     </section>
 
-    <!-- 月度星历 -->
-    <section class="card">
-      <div class="card-head">
-        <h2 class="card-title">🗓 月度星历</h2>
-        <div class="month-nav">
-          <button type="button" class="mini-btn" id="month-prev" aria-label="上一月">‹</button>
-          <button type="button" class="mini-btn" id="month-today">回到本月</button>
-          <button type="button" class="mini-btn" id="month-next" aria-label="下一月">›</button>
-        </div>
+    <!-- 段位 -->
+    <section class="g-card" id="rank-card">
+      <h2 class="g-card__title">🏅 园丁段位</h2>
+      <div class="g-rank" id="rank-slot"></div>
+    </section>
+
+    <!-- 成就墙 -->
+    <section class="g-card" id="achievement-card">
+      <h2 class="g-card__title">🎖 成就墙</h2>
+      <div class="g-achievements" id="achievement-wall"></div>
+    </section>
+
+    <!-- 周报海报（纯前端 canvas 手绘，禁止第三方库） -->
+    <section class="g-card" id="weekly-card">
+      <div class="g-card__head u-row u-row--between">
+        <h2 class="g-card__title">🖼 本周周报</h2>
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm" id="poster-btn">生成海报</button>
       </div>
-      <div id="month-slot"><!-- uiMonthGrid 注入 --></div>
+      <canvas id="weekly-canvas" width="640" height="900" aria-label="本周花园周报"></canvas>
+      <p class="u-hint" id="poster-hint">生成后可长按保存图片。</p>
     </section>
 
-    <!-- 全年星点图 -->
-    <section class="card">
-      <div class="card-head">
-        <h2 class="card-title">✨ 全年星点</h2>
-        <select id="hm-source" class="input input-inline" aria-label="星点图数据来源">
-          <option value="all">全部来源</option>
-          <option value="auto">仅提醒送达</option>
-          <option value="manual">仅手动点亮</option>
-        </select>
-      </div>
-      <div id="heatmap-year"><!-- uiStarHeatmap 注入 --></div>
-      <p class="setting-note" id="heatmap-summary">—</p>
-    </section>
-
-    <!-- 活跃趋势 -->
-    <section class="card">
-      <div class="card-head">
-        <h2 class="card-title">📈 星光起伏</h2>
-        <select id="trend-range" class="input input-inline" aria-label="趋势时间范围">
-          <option value="30">近 30 天</option>
-          <option value="90">近 90 天</option>
-          <option value="180">近 180 天</option>
-        </select>
-      </div>
-      <div id="trend-chart"><!-- uiSparkline 注入 --></div>
-    </section>
-
-    <!-- 星座亮度条（各计划近 30 天完成率） -->
-    <section class="card">
-      <h2 class="card-title">🎯 星座亮度（近 30 天）</h2>
-      <div class="rate-list" id="rate-list"><!-- uiBrightBars 注入 --></div>
-      <div id="rate-empty" hidden><!-- uiEmpty 注入 --></div>
-    </section>
-
-    <!-- 里程碑徽章 -->
-    <section class="card">
-      <h2 class="card-title">🏅 里程碑</h2>
-      <div id="badge-grid"><!-- uiBadgeGrid 注入 --></div>
-    </section>
-
-    <!-- 频率分布 -->
-    <section class="card">
-      <h2 class="card-title">🧭 周期分布</h2>
-      <div id="freq-dist"><!-- app3.js 渲染 --></div>
-      <div class="freq-legend" id="freq-legend"></div>
-    </section>
-
-    <!-- v6 · 情绪光谱（C3） -->
-    <section class="card" id="spectrum-card">
-      <div class="card-head">
-        <h2 class="card-title">🎨 情绪光谱</h2>
-        <select id="spectrum-range" class="input input-inline" aria-label="情绪光谱时间范围">
-          <option value="30">近 30 天</option>
-          <option value="90">近 90 天</option>
-          <option value="180">近 180 天</option>
-        </select>
-      </div>
-      <div id="spectrum-slot"><!-- uiSpectrum 注入 --></div>
-    </section>
-
-    <!-- v6 · 星河海报（B4） -->
-    <section class="card" id="poster-card">
-      <h2 class="card-title">🖼 星河海报</h2>
-      <div id="poster-slot"><!-- uiPosterPreview 注入 --></div>
-    </section>
-
-    <footer class="footer">
-      <p>星河契约 · RUN-form · 青 = 提醒送达，金 = 手动点亮</p>
+    <footer class="g-footer">
+      阳光花园 v2 · 数据存于本地浏览器 · 同步到仓库的数据是公开的，别写隐私
     </footer>
   </main>
 
-  <!-- v6 星屑画布（z-index 60，永不吃点击） -->
-  <canvas id="fx-layer" aria-hidden="true"></canvas>
-  <!-- v6 浮层挂载点（z-index 80，toast 仍在其上） -->
   <div id="overlay-root"></div>
+  <div id="toast" class="g-toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- 全局 toast 提示容器 -->
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-
-  <!-- PWA：注册 Service Worker（异步，不阻塞页面） -->
-  <script src="register-sw.js"></script>
-  <!-- 背景图 blur-up：高清图加载完后淡出低清占位 -->
-  <script>
-    (function () {
-      const img = new Image();
-      img.src = "assets/bg-vangogh-ocean.webp";
-      if (img.complete) {
-        document.body.classList.add("bg-ready");
-      } else {
-        img.addEventListener("load", function () {
-          document.body.classList.add("bg-ready");
-        });
-      }
-    })();
-  </script>
-  <!-- ⚠️ 加载顺序固定：store.js → v6 模块 → components.js → app3.js
-       星历页承载段位卡 / 情绪光谱 / 阶段回望 / 星河海报。 -->
-  <script src="store.js"></script>
-  <script src="sensory.js"></script>
-  <script src="theme.js"></script>
-  <script src="rank.js"></script>
-  <script src="mood.js"></script>
-  <script src="review.js"></script>
-  <script src="poster.js"></script>
-  <script src="celebrate.js"></script>
-  <script src="shortcuts.js"></script>
-  <script src="components.js"></script>
-  <script src="app3.js"></script>
+  <script src="js/core/boot.js"></script>
 </body>
 </html>
