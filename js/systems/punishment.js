@@ -66,7 +66,7 @@
         });
       }
       store().saveGarden({ witherRatio: L.gardenRatio });
-      try { if (RF.scene && RF.scene.setWeather) RF.scene.setWeather(L.scene); } catch (e) {}
+      try { B().emit("scene:weather", { weather: L.scene }); } catch (e) {}
       try { B().emit("garden:wither", { ratio: L.gardenRatio }); } catch (e) {}
       try { B().emit("day:missed", { dayKey: U().addDays(today, -1), pending: pendingOfYesterday() }); } catch (e) {}
     } else {
@@ -130,8 +130,8 @@
       return false;
     }
     store().saveGarden({ witherRatio: 0 });
-    RF.pet.revive(method);
-    try { if (RF.scene && RF.scene.setWeather) RF.scene.setWeather("clear"); } catch (e) {}
+    try { B().emit("pet:revive", { method: method }); } catch (e) {}
+    try { B().emit("scene:weather", { weather: "clear" }); } catch (e) {}
     return true;
   }
 
@@ -145,6 +145,10 @@
     ]);
     return tpl.join("\n").replace(/\{days\}/g, String(days));
   }
+
+  try {
+    B().on("day:reset", function () { try { applyDaily(); } catch (e) {} });
+  } catch (e) {}
 
   RF.punishment = {
     LEVELS: LEVELS,
