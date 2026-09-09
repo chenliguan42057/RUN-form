@@ -92,7 +92,7 @@
     var amt = Number(amount) || 0;
     if (isTheft(amt)) {
       store().addPoints(-amt * 2, "偷吃惩罚");
-      try { if (RF.pet) RF.pet.applyDelta({ mood: -20 }, "theft"); } catch (e) {}
+      try { RF.bus.emit("pet:applyDelta", { delta: { mood: -20 }, reason: "theft" }); } catch (e) {}
       try { B().emit("coupon:theft", { amount: amt }); } catch (e) {}
       return { ok: false, used: 0, penalty: { points: amt * 2, mood: 20 } };
     }
