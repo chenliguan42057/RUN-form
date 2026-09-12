@@ -186,6 +186,7 @@
         rankUp: "晋升 {name}！",
         achievement: "成就达成：{name}",
         dayPerfect: "今日全勤，花园盛开 🌷",
+        dailyEvent: "✨ 今日事件：{name} —— {desc}",
         checkinDone: "打卡成功 +{n} 分",
         alreadyDone: "今天已经完成啦 🌿",
         checkinFail: "打卡失败，请重试",
