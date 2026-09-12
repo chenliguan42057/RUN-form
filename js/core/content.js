@@ -176,6 +176,70 @@
       enabled: false,
       source: "data/quotes.json",
       mode: "home-greeting"
+    },
+    ui: {
+      freqLabels: { daily: "每天", weekly: "每周", monthly: "每月" },
+      toasts: {
+        petStageUp: "精灵进化啦！",
+        couponGranted: "获得野餐篮 🧺",
+        couponTheft: "野餐篮被偷吃，已加倍扣回",
+        rankUp: "晋升 {name}！",
+        achievement: "成就达成：{name}",
+        dayPerfect: "今日全勤，花园盛开 🌷",
+        checkinDone: "打卡成功 +{n} 分",
+        alreadyDone: "今天已经完成啦 🌿",
+        checkinFail: "打卡失败，请重试",
+        shopAmountRequired: "请输入金额",
+        shopConsume: "吃好喝好！核销 ¥{n}",
+        shopTheft: "偷吃被抓！已加倍扣回 ¥{n}",
+        shopFail: "操作失败",
+        shopNoPoints: "积分不够，先去打卡攒分～",
+        shopExchangeOk: "兑换成功：{name}",
+        shopExchangeFail: "兑换失败",
+        posterFail: "海报生成失败",
+        pushTest: "阳光花园测试推送",
+        contentSavedLocal: "已存本机（仅此设备生效）",
+        contentSavedRepo: "已提交仓库 ✅ 全设备生效",
+        contentSaveFail: "本机保存失败",
+        contentJsonErr: "JSON 格式错误，无法保存",
+        contentSubmitFail: "提交仓库失败（检查网络 / 同步通道）",
+        contentSubmitTimeout: "提交超时，请稍后重试"
+      },
+      coupon: {
+        unit: "野餐券",
+        labels: { source: "来源：", expireAt: "有效期至 ", used: "已核销", defaultSource: "打卡奖励" }
+      },
+      garden: { emptyHint: "去「管理」种下第一颗种子，花园就热闹啦。" },
+      home: {
+        greetings: { lateNight: "夜深了", morning: "早安", noon: "午安", afternoon: "下午好", evening: "晚上好", night: "夜安" },
+        defaultPetName: "小光",
+        milestone: { prefix: "距 ", suffix: " 天里程碑还有 ", maxed: "已是 30 天大佬，继续闪耀 ✨" },
+        couponHint: { balance: "当前野餐券余额", cta: "去市集放纵一下 →" }
+      },
+      manage: {
+        confirmDelete: { title: "删除任务？", body: "删除后它的花也会从花园移走…", ok: "删除", cancel: "取消" }
+      },
+      stats: {
+        ring: { empty: "今天没有任务，去管理页加几个吧", perfect: "今日全勤，花园盛开 🌷", pending: "还差 {n} 项就全勤" },
+        rankNext: { progress: "距「{name}」还差 {n} 分", maxed: "已是最高段位 🏵" },
+        poster: { title: "阳光花园 · 周报", hint: "长按图片可保存周报 📸" }
+      },
+      shop: { owned: "已有 {n} 个", exchangeBtn: "¥{n} 兑换" },
+      punishment: {
+        revive: {
+          prompts: {
+            goneMemoryFlower: "用 1 朵回忆之花召回（亲密度保留）",
+            goneThreeDay: "连续 30 天全勤自动召回",
+            goneNone: "需要回忆之花 ×1，或连续 30 天全勤",
+            fadedTimeDew: "用 1 份时光露水召回",
+            fadedThreeDay: "连续 14 天全勤自动召回",
+            fadedNone: "需要时光露水 ×1，或连续 14 天全勤",
+            weakThreeDay: "连续 3 天全勤唤醒",
+            weakNone: "连续 3 天全勤即可唤醒",
+            ready: "小光还在等你，继续打卡就好"
+          }
+        }
+      }
     }
   };
 
