@@ -276,6 +276,10 @@
       if (p && p.name) toastKey("achievement", { name: p.name }, "success");
     });
     RF.bus.on(E["day:perfect"] || "day:perfect", function () { sound("cheer"); petalRain(2200); toastKey("dayPerfect", null, "success"); });
+    RF.bus.on(E["event:rolled"] || "event:rolled", function (evt) {
+      if (!evt || !evt.name) return;
+      sound("ding"); toastKey("dailyEvent", { name: evt.name, desc: evt.desc || "" }, "info");
+    });
   }
 
   RF.fx = {
