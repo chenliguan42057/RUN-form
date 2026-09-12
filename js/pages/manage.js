@@ -45,15 +45,7 @@
     refreshLastSync();
   }
 
-  function markActiveNav() {
-    try {
-      var here = location.pathname.split("/").pop() || "manage.html";
-      var links = document.querySelectorAll(".g-nav__link");
-      for (var i = 0; i < links.length; i++) {
-        if ((links[i].getAttribute("href") || "").indexOf(here) >= 0) links[i].classList.add("g-nav__link--active");
-      }
-    } catch (e) {}
-  }
+  function markActiveNav() { if (RF.ui && RF.ui.markActiveNav) RF.ui.markActiveNav(); }
 
   /* ---------------- Tab ---------------- */
   function bindTabs() {
@@ -89,7 +81,7 @@
     var html = "";
     for (var i = 0; i < plans.length; i++) {
       var p = plans[i];
-      var freqLabel = { daily: "每天", weekly: "每周", monthly: "每月" }[p.freq] || "每天";
+      var freqLabel = (RF.content.get("ui.freqLabels", { daily: "每天", weekly: "每周", monthly: "每月" }))[p.freq] || "每天";
       html += '<div class="g-plan' + (p.enabled ? "" : " is-off") + '" data-id="' + U().esc(p.id) + '">' +
         '<span class="g-plan__icon" aria-hidden="true">' + U().esc(p.icon || "🌟") + "</span>" +
         '<div class="g-plan__main">' +
@@ -188,9 +180,9 @@
   function delPlan(id) {
     if (RF.ui && RF.ui.modal) {
       RF.ui.modal({
-        title: "删除任务？",
-        body: "<p>删除后它的花也会从花园移走（数据仍保留在仓库用于同步去重）。</p>",
-        okText: "删除", cancelText: "取消",
+        title: RF.content.get("ui.manage.confirmDelete.title", "删除任务？"),
+        body: "<p>" + RF.content.get("ui.manage.confirmDelete.body", "删除后它的花也会从花园移走（数据仍保留在仓库用于同步去重）。") + "</p>",
+        okText: RF.content.get("ui.manage.confirmDelete.ok", "删除"), cancelText: RF.content.get("ui.manage.confirmDelete.cancel", "取消"),
         onOk: function () {
           try { S().deletePlan(id); renderPlanList(); if (RF.fx) RF.fx.toast("已删除", "info"); } catch (e) {}
         }
@@ -362,7 +354,7 @@
       if (sug && $("lead-minutes")) { $("lead-minutes").value = sug; if (RF.fx) RF.fx.toast("已填入建议提前量", "info"); }
     });
     if ($("test-push-btn")) $("test-push-btn").addEventListener("click", function () {
-      if (RF.fx) RF.fx.toast("已发送测试推送，请查看钉钉", "info");
+      if (RF.fx) RF.fx.toastKey("pushTest", null, "info");
       try { if (S().dispatchViaProxy) S().dispatchViaProxy("test-push", { msg: "阳光花园测试推送" }); } catch (e) {}
     });
   }
@@ -392,13 +384,13 @@
     });
     if ($("content-save-local")) $("content-save-local").addEventListener("click", function () {
       var parsed;
-      try { parsed = JSON.parse(ta.value); } catch (e) { ta.classList.add("is-err"); if (RF.fx) RF.fx.toast("JSON 格式错误，无法保存", "error"); return; }
+      try { parsed = JSON.parse(ta.value); } catch (e) { ta.classList.add("is-err"); if (RF.fx) RF.fx.toastKey("contentJsonErr", null, "error"); return; }
       ta.classList.remove("is-err");
-      try { RF.content.setLocalOverride(parsed); if (RF.fx) RF.fx.toast("已存本机（仅此设备生效）", "success"); if ($("content-status")) $("content-status").textContent = "本机已保存"; } catch (e) { if (RF.fx) RF.fx.toast("本机保存失败", "error"); }
+      try { RF.content.setLocalOverride(parsed); if (RF.fx) RF.fx.toastKey("contentSavedLocal", null, "success"); if ($("content-status")) $("content-status").textContent = "本机已保存"; } catch (e) { if (RF.fx) RF.fx.toastKey("contentSaveFail", null, "error"); }
     });
     if ($("content-save-repo")) $("content-save-repo").addEventListener("click", function () {
       var parsed;
-      try { parsed = JSON.parse(ta.value); } catch (e) { ta.classList.add("is-err"); if (RF.fx) RF.fx.toast("JSON 格式错误，无法提交", "error"); return; }
+      try { parsed = JSON.parse(ta.value); } catch (e) { ta.classList.add("is-err"); if (RF.fx) RF.fx.toastKey("contentJsonErr", null, "error"); return; }
       ta.classList.remove("is-err");
       if (RF.fx) RF.fx.toast("正在提交到仓库…", "info");
       dispatchContentToRepo(parsed);
@@ -408,11 +400,11 @@
   function dispatchContentToRepo(parsed) {
     var settled = false;
     function cleanup() { try { RF.bus.off("sync:ok", onOk); RF.bus.off("sync:fail", onFail); } catch (e) {} }
-    function onOk(p) { if (p && p.kind === "content-update") { settled = true; cleanup(); if (RF.fx) RF.fx.toast("已提交仓库 ✅ 全设备生效", "success"); if ($("content-status")) $("content-status").textContent = "已提交仓库"; } }
-    function onFail(p) { if (p && p.kind === "content-update") { settled = true; cleanup(); if (RF.fx) RF.fx.toast("提交仓库失败（检查网络 / 同步通道）", "error"); } }
+    function onOk(p) { if (p && p.kind === "content-update") { settled = true; cleanup(); if (RF.fx) RF.fx.toastKey("contentSavedRepo", null, "success"); if ($("content-status")) $("content-status").textContent = "已提交仓库"; } }
+    function onFail(p) { if (p && p.kind === "content-update") { settled = true; cleanup(); if (RF.fx) RF.fx.toastKey("contentSubmitFail", null, "error"); } }
     try { RF.bus.on("sync:ok", onOk); RF.bus.on("sync:fail", onFail); } catch (e) {}
     try { S().dispatchViaProxy("content-update", { content: parsed }); } catch (e) { settled = true; cleanup(); if (RF.fx) RF.fx.toast("提交失败", "error"); }
-    setTimeout(function () { if (!settled) { settled = true; cleanup(); if (RF.fx) RF.fx.toast("提交超时，请稍后重试", "error"); } }, 16000);
+    setTimeout(function () { if (!settled) { settled = true; cleanup(); if (RF.fx) RF.fx.toastKey("contentSubmitTimeout", null, "error"); } }, 16000);
   }
 
   RF.pages = RF.pages || {};
