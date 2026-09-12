@@ -246,16 +246,23 @@
   function streakInfo() {
     var today = U().dayKey();
     var cur = 0, best = 0, lastPerfect = "", broke = 0;
+    // 无数据下限：回溯到「最早打卡日 / 最早计划起始日」为止。
+    // 否则空计划（无核心计划日）时 dayStatus 永远返回 perfect，会无限回溯 → 页面卡死。
+    var floor = today;
+    loadCheckins().forEach(function (c) { if (c.dayKey < floor) floor = c.dayKey; });
+    loadPlans().forEach(function (p) { if (p.startDay && p.startDay < floor) floor = p.startDay; });
+    var guard = 0;
     // 向后扫：今天若 partial（进行中）不计入但继续；missed 即断
     var d = today;
     for (;;) {
+      if (++guard > 4000) break; // 安全护栏：绝不允许无限回溯
       var st = dayStatus(d);
       if (st === "perfect") { cur++; if (lastPerfect === "") lastPerfect = d; }
       else if (d === today && st === "partial") { /* 今天进行中，不断也不计 */ }
       else { break; }
-      // 往昨天走
+      // 往昨天走（到无数据区即停）
       var prev = U().addDays(d, -1);
-      if (prev === d) break;
+      if (prev === d || prev < floor) break;
       d = prev;
     }
     // best：从最早打卡日扫到今天
@@ -265,6 +272,7 @@
       checks.forEach(function (c) { if (c.dayKey < firstDay) firstDay = c.dayKey; });
       var run = 0, bd = firstDay;
       for (;;) {
+        if (++guard > 8000) break; // 安全护栏
         if (dayStatus(bd) === "perfect") { run++; if (run > best) best = run; }
         else { run = 0; }
         var nxt = U().addDays(bd, 1);
