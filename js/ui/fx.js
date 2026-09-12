@@ -263,18 +263,19 @@
   /* ---------------- 订阅玩法事件（模块加载即挂，bus 已先加载） ---------------- */
   if (RF.bus) {
     var E = RF.bus.EVENTS;
-    RF.bus.on(E.garden_bloom || "garden:bloom", function (p) { sound("bloom"); petalRain((p && p.duration) || 1800); });
-    RF.bus.on(E.pet_stageUp || "pet:stageUp", function () { sound("bloom"); toastKey("petStageUp", null, "success"); });
-    RF.bus.on(E.coupon_granted || "coupon:granted", function (p) {
+    // 事件名以 bus.js 的「冒号」冻结名为准；保留 || 兜底串作防御（避免键名再被写错成下划线时静默失效）
+    RF.bus.on(E["garden:bloom"] || "garden:bloom", function (p) { sound("bloom"); petalRain((p && p.duration) || 1800); });
+    RF.bus.on(E["pet:stageUp"] || "pet:stageUp", function () { sound("bloom"); toastKey("petStageUp", null, "success"); });
+    RF.bus.on(E["coupon:granted"] || "coupon:granted", function (p) {
       sound("cheer"); toastKey("couponGranted", null, "success"); if (p && p.el) particlesAt(p.el, { count: 10 });
     });
-    RF.bus.on(E.coupon_theft || "coupon:theft", function () { sound("warn"); toastKey("couponTheft", null, "error"); });
-    RF.bus.on(E.rank_up || "rank:up", function (p) { celebrate("rank"); if (p && p.name) toastKey("rankUp", { name: p.name }, "success"); });
-    RF.bus.on(E.achievement_unlocked || "achievement:unlocked", function (p) {
+    RF.bus.on(E["coupon:theft"] || "coupon:theft", function () { sound("warn"); toastKey("couponTheft", null, "error"); });
+    RF.bus.on(E["rank:up"] || "rank:up", function (p) { celebrate("rank"); if (p && p.name) toastKey("rankUp", { name: p.name }, "success"); });
+    RF.bus.on(E["achievement:unlocked"] || "achievement:unlocked", function (p) {
       celebrate("achievement");
       if (p && p.name) toastKey("achievement", { name: p.name }, "success");
     });
-    RF.bus.on(E.day_perfect || "day:perfect", function () { sound("cheer"); petalRain(2200); toastKey("dayPerfect", null, "success"); });
+    RF.bus.on(E["day:perfect"] || "day:perfect", function () { sound("cheer"); petalRain(2200); toastKey("dayPerfect", null, "success"); });
   }
 
   RF.fx = {
