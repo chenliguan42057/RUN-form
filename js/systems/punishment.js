@@ -85,12 +85,7 @@
     return core.filter(function (p) { return done.indexOf(p.id) < 0; }).length;
   }
   function isOnDay(plan, dayKey) {
-    var dt = new Date(U().startOfDayMs(dayKey));
-    var dow = (dt.getDay() + 6) % 7, dom = dt.getDate();
-    if (plan.freq === "daily") return true;
-    if (plan.freq === "weekly") return plan.day === dow;
-    if (plan.freq === "monthly") return plan.day > 0 && plan.day === dom;
-    return false;
+    return RF.util.isPlanOnDay(plan, dayKey);
   }
 
   function canRevive() {
@@ -98,20 +93,20 @@
     var inv = store().loadProfile().inventory.props || {};
     var streak = store().streakInfo().current;
     if (state === "gone") {
-      if (inv.memoryFlower > 0) return { can: true, method: "memory-flower", need: "用 1 朵回忆之花召回（亲密度保留）" };
-      if (streak >= 30) return { can: true, method: "three-day", need: "连续 30 天全勤自动召回" };
-      return { can: false, method: null, need: "需要回忆之花 ×1，或连续 30 天全勤" };
+      if (inv.memoryFlower > 0) return { can: true, method: "memory-flower", need: RF.content.get("ui.punishment.revive.prompts.goneMemoryFlower", "用 1 朵回忆之花召回（亲密度保留）") };
+      if (streak >= 30) return { can: true, method: "three-day", need: RF.content.get("ui.punishment.revive.prompts.goneThreeDay", "连续 30 天全勤自动召回") };
+      return { can: false, method: null, need: RF.content.get("ui.punishment.revive.prompts.goneNone", "需要回忆之花 ×1，或连续 30 天全勤") };
     }
     if (state === "faded") {
-      if (inv.timeDew > 0) return { can: true, method: "time-dew", need: "用 1 份时光露水召回" };
-      if (streak >= 14) return { can: true, method: "three-day", need: "连续 14 天全勤自动召回" };
-      return { can: false, method: null, need: "需要时光露水 ×1，或连续 14 天全勤" };
+      if (inv.timeDew > 0) return { can: true, method: "time-dew", need: RF.content.get("ui.punishment.revive.prompts.fadedTimeDew", "用 1 份时光露水召回") };
+      if (streak >= 14) return { can: true, method: "three-day", need: RF.content.get("ui.punishment.revive.prompts.fadedThreeDay", "连续 14 天全勤自动召回") };
+      return { can: false, method: null, need: RF.content.get("ui.punishment.revive.prompts.fadedNone", "需要时光露水 ×1，或连续 14 天全勤") };
     }
     if (state === "sleep" || state === "sick") {
-      if (streak >= 3) return { can: true, method: "three-day", need: "连续 3 天全勤唤醒" };
-      return { can: false, method: null, need: "连续 3 天全勤即可唤醒" };
+      if (streak >= 3) return { can: true, method: "three-day", need: RF.content.get("ui.punishment.revive.prompts.weakThreeDay", "连续 3 天全勤唤醒") };
+      return { can: false, method: null, need: RF.content.get("ui.punishment.revive.prompts.weakNone", "连续 3 天全勤即可唤醒") };
     }
-    return { can: true, method: "three-day", need: "小光还在等你，继续打卡就好" };
+    return { can: true, method: "three-day", need: RF.content.get("ui.punishment.revive.prompts.ready", "小光还在等你，继续打卡就好") };
   }
 
   function revive(method) {
