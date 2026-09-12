@@ -229,8 +229,10 @@
     if (!B()) return;
     var E = B().EVENTS;
     var re = function () { try { scheduleRefresh(); } catch (e) {} };
-    [E.checkin_done, E.day_perfect, E.pet_stageUp, E.garden_bloom, E.rank_up, E.achievement_unlocked,
-     E.coupon_granted, E.coupon_used, E.coupon_theft, E.pet_stateChange].forEach(function (ev) {
+    // 注意：EVENTS 用「冒号」冻结名（checkin:done 等），务必与 bus.js 一致，否则 ev 为 undefined 被跳过 → 订阅失效。
+    [E["checkin:done"], E["day:perfect"], E["pet:stageUp"], E["garden:bloom"], E["rank:up"],
+     E["achievement:unlocked"], E["coupon:granted"], E["coupon:used"], E["coupon:theft"],
+     E["pet:stateChange"]].forEach(function (ev) {
       if (ev) B().on(ev, re);
     });
   }
