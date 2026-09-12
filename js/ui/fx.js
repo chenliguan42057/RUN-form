@@ -222,6 +222,23 @@
     }, 2400);
   }
 
+  /**
+   * 通过内容层解析提示文案（主理人可在 manage.html 改 ui.toasts.*）。
+   * @param {string} key ui.toasts.<key>
+   * @param {Object=} vars 占位符替换，如 { name: "x" }
+   * @param {"info"|"success"|"warning"|"error"=} type
+   */
+  function toastKey(key, vars, type) {
+    var tpl = (RF.content && RF.content.get) ? RF.content.get("ui.toasts." + key, key) : key;
+    if (vars && typeof vars === "object") {
+      tpl = String(tpl).replace(/\{\w+\}/g, function (m) {
+        var k = m.slice(1, -1);
+        return (vars[k] !== undefined && vars[k] !== null) ? String(vars[k]) : m;
+      });
+    }
+    toast(tpl, type);
+  }
+
   /* ---------------- 全屏庆祝 ---------------- */
   /**
    * 全屏庆祝。
@@ -247,17 +264,17 @@
   if (RF.bus) {
     var E = RF.bus.EVENTS;
     RF.bus.on(E.garden_bloom || "garden:bloom", function (p) { sound("bloom"); petalRain((p && p.duration) || 1800); });
-    RF.bus.on(E.pet_stageUp || "pet:stageUp", function () { sound("bloom"); toast("精灵进化啦！", "success"); });
+    RF.bus.on(E.pet_stageUp || "pet:stageUp", function () { sound("bloom"); toastKey("petStageUp", null, "success"); });
     RF.bus.on(E.coupon_granted || "coupon:granted", function (p) {
-      sound("cheer"); toast("获得野餐篮 🧺", "success"); if (p && p.el) particlesAt(p.el, { count: 10 });
+      sound("cheer"); toastKey("couponGranted", null, "success"); if (p && p.el) particlesAt(p.el, { count: 10 });
     });
-    RF.bus.on(E.coupon_theft || "coupon:theft", function () { sound("warn"); toast("野餐篮被偷吃，已加倍扣回", "error"); });
-    RF.bus.on(E.rank_up || "rank:up", function (p) { celebrate("rank"); if (p && p.name) toast("晋升 " + p.name + "！", "success"); });
+    RF.bus.on(E.coupon_theft || "coupon:theft", function () { sound("warn"); toastKey("couponTheft", null, "error"); });
+    RF.bus.on(E.rank_up || "rank:up", function (p) { celebrate("rank"); if (p && p.name) toastKey("rankUp", { name: p.name }, "success"); });
     RF.bus.on(E.achievement_unlocked || "achievement:unlocked", function (p) {
       celebrate("achievement");
-      if (p && p.name) toast("成就达成：" + p.name, "success");
+      if (p && p.name) toastKey("achievement", { name: p.name }, "success");
     });
-    RF.bus.on(E.day_perfect || "day:perfect", function () { sound("cheer"); petalRain(2200); toast("今日全勤，花园盛开 🌷", "success"); });
+    RF.bus.on(E.day_perfect || "day:perfect", function () { sound("cheer"); petalRain(2200); toastKey("dayPerfect", null, "success"); });
   }
 
   RF.fx = {
@@ -266,6 +283,7 @@
     numberPop: numberPop,
     sound: sound,
     toast: toast,
+    toastKey: toastKey,
     celebrate: celebrate
   };
 })(window.RF = window.RF || {});
