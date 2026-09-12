@@ -76,7 +76,10 @@
   }
 
   /* ---------------- 初始化 ---------------- */
+  var _sceneInited = false;
   function init() {
+    if (_sceneInited) return; // 幂等：重复调用只初始化一次，避免重复注册 bus 监听 / setInterval
+    _sceneInited = true;
     // 同步 profile 的 reduceMotion 偏好
     try {
       if (RF.store && RF.store.loadProfile) {
