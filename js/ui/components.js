@@ -187,7 +187,7 @@
         }
       } catch (e) { /* ignore */ }
     }
-    var src = E(c.source || "打卡奖励");
+    var src = E(c.source || RF.content.get("ui.coupon.labels.defaultSource", "打卡奖励"));
     return (
       '<div class="g-basket' + (used ? " is-used" : "") + '">' +
         '<svg class="g-basket__svg" viewBox="0 0 64 56" width="56" height="48" aria-hidden="true">' +
@@ -197,13 +197,29 @@
           '<path d="M10 20 H54" stroke="#8a5a2b" stroke-width="2.4" stroke-linecap="round"/>' +
         "</svg>" +
         '<div class="g-basket__info">' +
-          '<span class="g-basket__amt">¥' + E(amt) + " 野餐券</span>" +
-          '<span class="g-basket__src">来源：' + src + "</span>" +
-          (exp ? '<span class="g-basket__exp">有效期至 ' + exp + "</span>" : "") +
-          (used ? '<span class="g-basket__tag">已核销</span>' : "") +
+          '<span class="g-basket__amt">¥' + E(amt) + " " + RF.content.get("ui.coupon.unit", "野餐券") + "</span>" +
+          '<span class="g-basket__src">' + RF.content.get("ui.coupon.labels.source", "来源：") + src + "</span>" +
+          (exp ? '<span class="g-basket__exp">' + RF.content.get("ui.coupon.labels.expireAt", "有效期至 ") + exp + "</span>" : "") +
+          (used ? '<span class="g-basket__tag">' + RF.content.get("ui.coupon.labels.used", "已核销") + "</span>" : "") +
         "</div>" +
       "</div>"
     );
+  }
+
+  /**
+   * 按当前 pathname 末段高亮顶部导航（4 个页面共用，消除重复）。
+   */
+  function markActiveNav() {
+    try {
+      var seg = (location.pathname.split("/").pop() || "").replace(/\.html$/, "") || "index";
+      var links = document.querySelectorAll("[data-nav]");
+      for (var i = 0; i < links.length; i++) {
+        var href = links[i].getAttribute("href") || "";
+        var key = href.split("/").pop().replace(/\.html$/, "") || "index";
+        if (key === seg) links[i].classList.add("is-active");
+        else links[i].classList.remove("is-active");
+      }
+    } catch (e) { /* ignore */ }
   }
 
   RF.ui = {
@@ -211,6 +227,7 @@
     progressBar: progressBar,
     modal: modal,
     iconPicker: iconPicker,
-    couponBasket: couponBasket
+    couponBasket: couponBasket,
+    markActiveNav: markActiveNav
   };
 })(window.RF = window.RF || {});
