@@ -100,10 +100,7 @@
     var dom = now.getDate();
     return loadPlans().filter(function (p) {
       if (!p.enabled) return false;
-      if (p.freq === "daily") return true;
-      if (p.freq === "weekly") return p.day === dow;
-      if (p.freq === "monthly") return p.day > 0 && p.day === dom;
-      return false;
+      return RF.util.isPlanOnDay(p, U().dayKey());
     });
   }
 
@@ -186,13 +183,7 @@
 
   /** plan 是否在指定 dayKey 那天该做 */
   function isOnDay(plan, dayKey) {
-    var dt = new Date(U().startOfDayMs(dayKey));
-    var dow = (dt.getDay() + 6) % 7;
-    var dom = dt.getDate();
-    if (plan.freq === "daily") return true;
-    if (plan.freq === "weekly") return plan.day === dow;
-    if (plan.freq === "monthly") return plan.day > 0 && plan.day === dom;
-    return false;
+    return RF.util.isPlanOnDay(plan, dayKey);
   }
 
   /* ---------------- 精灵 / 花园 / 券 / 档案 ---------------- */
