@@ -141,8 +141,10 @@
     list.push(c);
     saveCheckins(list);
 
-    // 全勤奖励：若这一下让今天核心全勤，补 20 分
-    if (dayStatus(day) === "perfect" && plan && plan.core) c.points += 20;
+    // 全勤奖励：若这一下让今天核心全勤，补 20 分。
+    // 判定必须在落库之后（dayStatus 读的是持久化数据），故补齐后再存一次，
+    // 保证持久化 checkin.points 与 emit 出去的 checkin:done.points 一致（否则刷新后 +20 丢失）。
+    if (dayStatus(day) === "perfect" && plan && plan.core) { c.points += 20; saveCheckins(list); }
 
     // 通知各玩法系统（宠物/花园/段位/券各自订阅）
     try { B().emit("checkin:done", { planId: planId, ts: c.ts, points: c.points, checkin: c }); } catch (ex) {}
