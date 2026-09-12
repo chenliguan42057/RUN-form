@@ -39,15 +39,7 @@
     bindSelectAll();
   }
 
-  function markActiveNav() {
-    try {
-      var here = location.pathname.split("/").pop() || "shop.html";
-      var links = document.querySelectorAll(".g-nav__link");
-      for (var i = 0; i < links.length; i++) {
-        if ((links[i].getAttribute("href") || "").indexOf(here) >= 0) links[i].classList.add("g-nav__link--active");
-      }
-    } catch (e) {}
-  }
+  function markActiveNav() { if (RF.ui && RF.ui.markActiveNav) RF.ui.markActiveNav(); }
 
   function renderBalance() {
     var el = $("balance");
@@ -135,15 +127,15 @@
       ev.preventDefault();
       var amt = parseInt($("indulge-amount").value, 10) || 0;
       var note = $("indulge-note") ? $("indulge-note").value.trim() : "";
-      if (amt <= 0) { if (RF.fx) RF.fx.toast("请输入金额", "warning"); return; }
+      if (amt <= 0) { if (RF.fx) RF.fx.toastKey("shopAmountRequired", null, "warning"); return; }
       try {
         var r = RF.coupon.indulge(amt, note);
         if (r.ok) {
-          if (RF.fx) { RF.fx.toast("吃好喝好！核销 ¥" + r.used, "success"); RF.fx.sound("cheer"); }
+          if (RF.fx) { RF.fx.toastKey("shopConsume", { n: r.used }, "success"); RF.fx.sound("cheer"); }
         } else {
-          if (RF.fx) RF.fx.toast("偷吃被抓！已加倍扣回 ¥" + (r.penalty ? r.penalty.points : amt * 2), "error");
+          if (RF.fx) RF.fx.toastKey("shopTheft", { n: (r.penalty ? r.penalty.points : amt * 2) }, "error");
         }
-      } catch (e) { if (RF.fx) RF.fx.toast("操作失败", "error"); }
+      } catch (e) { if (RF.fx) RF.fx.toastKey("shopFail", null, "error"); }
       if ($("indulge-amount")) $("indulge-amount").value = "";
       renderBasket();
     });
@@ -164,8 +156,8 @@
         '<div class="g-shop-item__emoji" aria-hidden="true">' + it.emoji + "</div>" +
         '<div class="g-shop-item__name">' + U().esc(it.name) + "</div>" +
         '<div class="g-shop-item__desc">' + U().esc(it.desc) + "</div>" +
-        '<div class="g-shop-item__own">已有 ' + owned + " 个</div>" +
-        '<button type="button" class="g-btn g-btn--primary g-shop-item__buy" data-buy="' + it.key + '">¥' + it.cost + " 兑换</button>" +
+        '<div class="g-shop-item__own">' + RF.content.get("ui.shop.owned", "已有 {n} 个").replace("{n}", owned) + "</div>" +
+        '<button type="button" class="g-btn g-btn--primary g-shop-item__buy" data-buy="' + it.key + '">' + RF.content.get("ui.shop.exchangeBtn", "¥{n} 兑换").replace("{n}", it.cost) + "</button>" +
         "</div>";
     }
     grid.innerHTML = html;
@@ -183,7 +175,7 @@
     if (!item) return;
     var prof = S().loadProfile();
     if ((prof.points || 0) < item.cost) {
-      if (RF.fx) RF.fx.toast("积分不够，先去打卡攒分～", "warning");
+      if (RF.fx) RF.fx.toastKey("shopNoPoints", null, "warning");
       return;
     }
     try {
@@ -191,8 +183,8 @@
       var inv = Object.assign({}, (prof.inventory && prof.inventory.props) || {}, {});
       inv[key] = (inv[key] || 0) + 1;
       S().saveProfile({ inventory: { props: inv } });
-      if (RF.fx) { RF.fx.toast("兑换成功：" + item.name, "success"); RF.fx.sound("bloom"); }
-    } catch (e) { if (RF.fx) RF.fx.toast("兑换失败", "error"); }
+      if (RF.fx) { RF.fx.toastKey("shopExchangeOk", { name: item.name }, "success"); RF.fx.sound("bloom"); }
+    } catch (e) { if (RF.fx) RF.fx.toastKey("shopExchangeFail", null, "error"); }
     renderShopGrid();
     renderBalance();
   }
