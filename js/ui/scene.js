@@ -6,7 +6,8 @@
  * 跨组约定（§9.3 耦合点 3）：
  *   · 订阅 bus 的 "garden:wither"，载荷 { ratio }（0-1 一个数），据此调 setWeather()。
  *     发布方是 C 组的 punishment，两边都不 import 对方。
- *   · 时段切换时 emit("scene:periodChange", {period})，pet / garden 订阅。
+ *   · 时段切换时 emit("scene:periodChange", {period})。⚠️ 目前全仓尚无订阅者（预留扩展点，
+ *     请勿据此假定 pet / garden 已联动；此前注释曾误称其已订阅）。
  *
  * 性能红线（§8.6）：
  *   · 全局只允许 1 个 requestAnimationFrame 主循环，由本文件持有；
