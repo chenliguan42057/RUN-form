@@ -191,7 +191,7 @@
     if (!el) return;
     var p = get();
     var s = stage();
-    var emoji = STAGE_EMOJI[p.state === "gone" ? "egg" : p.stage] || "🥚";
+    var emoji = p.state === "gone" ? "🥚" : (s.emoji || "🥚"); // 走内容层 pet.stages（主理人可改 emoji），gone 仍显示蛋
     var stateCls = "g-pet__body--" + (p.state === "normal" ? s.key : p.state);
     var line = speak({ period: document.documentElement.getAttribute("data-period"), streak: store().streakInfo().current });
     el.innerHTML =
