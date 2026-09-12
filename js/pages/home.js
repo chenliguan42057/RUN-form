@@ -56,21 +56,13 @@
     subscribe();
   }
 
-  function markActiveNav() {
-    try {
-      var here = location.pathname.split("/").pop() || "index.html";
-      var links = document.querySelectorAll(".g-nav__link");
-      for (var i = 0; i < links.length; i++) {
-        var href = links[i].getAttribute("href") || "";
-        if (href.indexOf(here) >= 0) links[i].classList.add("g-nav__link--active");
-      }
-    } catch (e) {}
-  }
+  function markActiveNav() { if (RF.ui && RF.ui.markActiveNav) RF.ui.markActiveNav(); }
 
   function renderHeader() {
     try {
       var hour = new Date().getHours();
-      var greet = hour < 6 ? "夜深了" : hour < 11 ? "早安" : hour < 14 ? "午安" : hour < 18 ? "下午好" : hour < 22 ? "晚上好" : "夜安";
+      var bucket = hour < 6 ? "lateNight" : hour < 11 ? "morning" : hour < 14 ? "noon" : hour < 18 ? "afternoon" : hour < 22 ? "evening" : "night";
+      var greet = RF.content.get("ui.home.greetings." + bucket, hour < 6 ? "夜深了" : hour < 11 ? "早安" : hour < 14 ? "午安" : hour < 18 ? "下午好" : hour < 22 ? "晚上好" : "夜安");
       var pet = RF.pet.get();
       if (els.greeting) els.greeting.textContent = greet + "，" + U().esc(pet.name || "小光") + " 在等你～";
       if (els.date) els.date.textContent = new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
@@ -112,12 +104,13 @@
     if (els.milestone) {
       try {
         var cur = S().streakInfo().current;
-        var targets = [7, 14, 30].filter(function (d) { return d > cur; });
+        var MS = (RF.content.get("coupon.milestones", []) || []).map(function (m) { return m.days; });
+        var targets = MS.filter(function (d) { return d > cur; });
         if (targets.length) {
           var left = RF.countdown.toMilestone(targets[0]);
-          els.milestone.textContent = "距 " + targets[0] + " 天里程碑还有 " + RF.countdown.format(left);
+          els.milestone.textContent = RF.content.get("ui.home.milestone.prefix", "距 ") + targets[0] + RF.content.get("ui.home.milestone.suffix", " 天里程碑还有 ") + RF.countdown.format(left);
         } else {
-          els.milestone.textContent = "已是 30 天大佬，继续闪耀 ✨";
+          els.milestone.textContent = RF.content.get("ui.home.milestone.maxed", "已是 30 天大佬，继续闪耀 ✨");
         }
       } catch (e) {}
     }
@@ -165,16 +158,16 @@
     var already = false;
     try { already = S().doneToday(planId); } catch (e) {}
     if (already) {
-      if (RF.fx) RF.fx.toast("今天已经完成啦 🌿", "info");
+      if (RF.fx) RF.fx.toastKey("alreadyDone", null, "info");
       return;
     }
     // 0.5 秒内的视听反馈：同步、不等网络
     if (RF.fx) { RF.fx.sound("ding"); RF.fx.particles(btn, { count: 14 }); }
     try {
       var c = S().addCheckin(planId, {});
-      if (c && RF.fx) RF.fx.toast("打卡成功 +" + (c.points || 0) + " 分", "success");
+      if (c && RF.fx) RF.fx.toastKey("checkinDone", { n: (c.points || 0) }, "success");
     } catch (e) {
-      if (RF.fx) RF.fx.toast("打卡失败，请重试", "error");
+      if (RF.fx) RF.fx.toastKey("checkinFail", null, "error");
       return;
     }
     refresh();
@@ -207,8 +200,8 @@
     if (!els.couponHint) return;
     try {
       var bal = RF.coupon.balance();
-      els.couponHint.innerHTML = '当前野餐券余额 <b class="u-num">¥' + bal + "</b> · " +
-        '<a href="shop.html">去市集放纵一下 →</a>';
+      els.couponHint.innerHTML = RF.content.get("ui.home.couponHint.balance", "当前野餐券余额") + ' <b class="u-num">¥' + bal + "</b> · " +
+        '<a href="shop.html">' + RF.content.get("ui.home.couponHint.cta", "去市集放纵一下 →") + "</a>";
     } catch (e) {}
   }
 
