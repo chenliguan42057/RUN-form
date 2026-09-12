@@ -341,6 +341,21 @@
     return muted;
   }
 
+  /**
+   * plan 在指定 dayKey 是否该做（频率判定，单一事实来源）。
+   * @param {Object} plan {freq:"daily"|"weekly"|"monthly", day?:number}
+   * @param {string} dayKey "YYYY-MM-DD"
+   * @return {boolean}
+   */
+  function isPlanOnDay(plan, dayKey) {
+    var dt = new Date(startOfDayMs(dayKey));
+    var dow = (dt.getDay() + 6) % 7, dom = dt.getDate();
+    if (plan.freq === "daily") return true;
+    if (plan.freq === "weekly") return plan.day === dow;
+    if (plan.freq === "monthly") return plan.day > 0 && plan.day === dom;
+    return false;
+  }
+
   RF.util = {
     DAY_MS: DAY_MS,
     genId: genId,
@@ -363,6 +378,7 @@
     nowMs: nowMs,
     sound: sound,
     setMuted: setMuted,
-    isMuted: isMuted
+    isMuted: isMuted,
+    isPlanOnDay: isPlanOnDay
   };
 })(window.RF = window.RF || {});
