@@ -32,15 +32,7 @@
     bindPoster();
   }
 
-  function markActiveNav() {
-    try {
-      var here = location.pathname.split("/").pop() || "stats.html";
-      var links = document.querySelectorAll(".g-nav__link");
-      for (var i = 0; i < links.length; i++) {
-        if ((links[i].getAttribute("href") || "").indexOf(here) >= 0) links[i].classList.add("g-nav__link--active");
-      }
-    } catch (e) {}
-  }
+  function markActiveNav() { if (RF.ui && RF.ui.markActiveNav) RF.ui.markActiveNav(); }
 
   function renderRing() {
     var slot = $("ring-slot");
@@ -62,8 +54,8 @@
         '<text x="60" y="76" text-anchor="middle" class="g-ring__sub">' + done + "/" + total + "</text>" +
       "</svg>";
     var note = $("ring-note");
-    if (note) note.textContent = total === 0 ? "今天没有任务，去管理页加几个吧" :
-      (done === total ? "今日全勤，花园盛开 🌷" : "还差 " + (total - done) + " 项就全勤");
+    if (note) note.textContent = total === 0 ? RF.content.get("ui.stats.ring.empty", "今天没有任务，去管理页加几个吧") :
+      (done === total ? RF.content.get("ui.stats.ring.perfect", "今日全勤，花园盛开 🌷") : RF.content.get("ui.stats.ring.pending", "还差 {n} 项就全勤").replace("{n}", String(total - done)));
   }
 
   function renderHeatmap() {
@@ -116,7 +108,7 @@
     if (!slot) return;
     var prof = S().loadProfile();
     var rk = RF.rpg.rank(prof.totalPoints || 0);
-    var nextLabel = rk.next ? "距「" + rk.next.name + "」还差 " + (rk.next.min - (prof.totalPoints || 0)) + " 分" : "已是最高段位 🏵";
+    var nextLabel = rk.next ? RF.content.get("ui.stats.rankNext.progress", "距「{name}」还差 {n} 分").replace("{name}", rk.next.name).replace("{n}", String(rk.next.min - (prof.totalPoints || 0))) : RF.content.get("ui.stats.rankNext.maxed", "已是最高段位 🏵");
     slot.innerHTML =
       '<div class="g-rank">' +
         '<div class="g-rank__emoji" aria-hidden="true">' + rk.emoji + "</div>" +
@@ -151,7 +143,7 @@
     var canvas = $("weekly-canvas");
     if (!btn || !canvas) return;
     btn.addEventListener("click", function () {
-      try { drawPoster(canvas); } catch (e) { if (RF.fx) RF.fx.toast("海报生成失败", "error"); }
+      try { drawPoster(canvas); } catch (e) { if (RF.fx) RF.fx.toastKey("posterFail", null, "error"); }
     });
   }
 
@@ -173,7 +165,7 @@
     ctx.textAlign = "center";
     ctx.fillStyle = "#3a3a4a";
     ctx.font = "bold 26px system-ui, sans-serif";
-    ctx.fillText("阳光花园 · 周报", W / 2, 50);
+    ctx.fillText(RF.content.get("ui.stats.poster.title", "阳光花园 · 周报"), W / 2, 50);
 
     ctx.font = "64px system-ui, sans-serif";
     ctx.fillText(rk.emoji, W / 2, 130);
@@ -191,7 +183,7 @@
     ];
     for (var i = 0; i < lines.length; i++) ctx.fillText(lines[i], W / 2, 210 + i * 28);
 
-    if (RF.fx) RF.fx.toast("长按图片可保存周报 📸", "success");
+    if (RF.fx) RF.fx.toast(RF.content.get("ui.stats.poster.hint", "长按图片可保存周报 📸"), "success");
 
     // 触发下载
     try {
