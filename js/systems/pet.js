@@ -227,15 +227,7 @@
   }
 
   function farewellLetter() {
-    var p = get();
-    var days = stage().days;
-    var lines = [
-      "亲爱的，" + days + " 天里，你每次打卡我都记着。",
-      "花园也许会荒，但你不曾真的离开。",
-      "如果哪天又想吃顿好的，记得先领好野餐篮——",
-      "那是我留给你的、放心放纵的许可。"
-    ];
-    return lines.join("\n");
+    return RF.punishment.letter();
   }
 
   /* 订阅 */
