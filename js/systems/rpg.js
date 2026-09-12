@@ -110,16 +110,18 @@
     return fresh;
   }
 
+  /**
+   * 每日随机事件：每天最多 roll 一次（幂等）。命中则把事件 id 持久化并立即生效
+   * （pet 增减走 pet:applyDelta；UI 通过 event:rolled 展示）。由 day:reset 触发。
+   */
   function rollDailyEvent() {
     var today = U().dayKey();
     var prof = store().loadProfile();
     if (prof.lastEventDay === today) return null; // 每天只 roll 一次
-    store().saveProfile({ lastEventDay: today });
-    if (Math.random() < 0.3) {
-      var evt = U().pick(DAILY_EVENTS);
-      return evt;
-    }
-    return null;
+    var evt = Math.random() < 0.3 ? U().pick(DAILY_EVENTS) : null;
+    store().saveProfile({ lastEventDay: today, dailyEventId: evt ? evt.id : null });
+    if (evt) applyEvent(evt);
+    return evt;
   }
 
   function applyEvent(evt) {
@@ -133,15 +135,23 @@
     B().on("checkin:done", function (p) {
       try {
         var pts = (p && p.points) || 10;
-        // 事件倍率
+        // 今日若 roll 到倍率事件，按「已 roll 的那个事件」加成（不得再随机重抽）
         var prof = store().loadProfile();
-        if (prof.lastEventDay === U().dayKey()) {
-          var ev = U().pick(DAILY_EVENTS);
+        if (prof.dailyEventId) {
+          var ev = null;
+          for (var i = 0; i < DAILY_EVENTS.length; i++) {
+            if (DAILY_EVENTS[i].id === prof.dailyEventId) { ev = DAILY_EVENTS[i]; break; }
+          }
           if (ev && ev.multiplier) pts = Math.round(pts * ev.multiplier);
         }
         addPoints(pts, "打卡");
       } catch (e) {}
     });
+  } catch (e) {}
+
+  // 每日结算（store.init 发出 day:reset）→ roll 当日随机事件；rollDailyEvent 自带「每天一次」幂等守卫
+  try {
+    B().on("day:reset", function () { try { rollDailyEvent(); } catch (e) {} });
   } catch (e) {}
 
   RF.rpg = {
