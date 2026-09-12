@@ -170,7 +170,7 @@
       if (RF.fx) RF.fx.toastKey("checkinFail", null, "error");
       return;
     }
-    refresh();
+    scheduleRefresh();
   }
 
   function renderGarden() {
@@ -205,6 +205,17 @@
     } catch (e) {}
   }
 
+  // 把一次操作中同步触发的多次 refresh 合并到下一帧，
+  // 避免 checkin/pet/garden 等数个 bus 事件各自全量重渲染（花园/任务列表被反复重建→闪烁）。
+  // 最终 DOM 状态与多次 refresh 完全一致，仅去重了无谓的中间重建。
+  var _refreshScheduled = false;
+  function scheduleRefresh() {
+    if (_refreshScheduled) return;
+    _refreshScheduled = true;
+    var raf = window.requestAnimationFrame || function (cb) { return setTimeout(cb, 16); };
+    raf(function () { _refreshScheduled = false; refresh(); });
+  }
+
   function refresh() {
     renderHeader();
     renderPet();
@@ -217,7 +228,7 @@
   function subscribe() {
     if (!B()) return;
     var E = B().EVENTS;
-    var re = function () { try { refresh(); } catch (e) {} };
+    var re = function () { try { scheduleRefresh(); } catch (e) {} };
     [E.checkin_done, E.day_perfect, E.pet_stageUp, E.garden_bloom, E.rank_up, E.achievement_unlocked,
      E.coupon_granted, E.coupon_used, E.coupon_theft, E.pet_stateChange].forEach(function (ev) {
       if (ev) B().on(ev, re);
