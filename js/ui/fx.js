@@ -265,7 +265,7 @@
     var E = RF.bus.EVENTS;
     // 事件名以 bus.js 的「冒号」冻结名为准；保留 || 兜底串作防御（避免键名再被写错成下划线时静默失效）
     RF.bus.on(E["garden:bloom"] || "garden:bloom", function (p) { sound("bloom"); petalRain((p && p.duration) || 1800); });
-    RF.bus.on(E["pet:stageUp"] || "pet:stageUp", function () { sound("bloom"); toastKey("petStageUp", null, "success"); });
+    RF.bus.on(E["pet:stageUp"] || "pet:stageUp", function (p) { if (p && p.silent) return; sound("bloom"); toastKey("petStageUp", null, "success"); });
     RF.bus.on(E["coupon:granted"] || "coupon:granted", function (p) {
       sound("cheer"); toastKey("couponGranted", null, "success"); if (p && p.el) particlesAt(p.el, { count: 10 });
     });
