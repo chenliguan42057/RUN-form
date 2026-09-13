@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="color-scheme" content="light" />
-  <meta name="theme-color" content="#87CEEB" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0a0e23" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="阳光花园" />
-  <title>阳光花园 · 今天也要开花呀</title>
+  <meta name="apple-mobile-web-app-title" content="星夜花园" />
+  <title>星夜花园 · 在静谧里慢慢开花</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
@@ -20,9 +20,9 @@
         var p = h < 6 ? "night" : h < 9 ? "sunrise" : h < 12 ? "morning"
               : h < 14 ? "noon" : h < 18 ? "golden" : h < 20 ? "dusk" : "night";
         var SKY = {
-          sunrise: ["#FFD1B3", "#FFB6C1"], morning: ["#87CEEB", "#BFEFFF"],
-          noon: ["#FFE66D", "#FFF3B0"], golden: ["#FFE9A8", "#98FB98"],
-          dusk: ["#FFA07A", "#E6E6FA"], night: ["#1B2A5B", "#3D5A98"]
+          sunrise: ["#141833", "#241d4a"], morning: ["#0d1b32", "#143049"],
+          noon: ["#0b1d3a", "#103950"], golden: ["#151a39", "#2a2348"],
+          dusk: ["#141539", "#311f44"], night: ["#070b1c", "#121a3a"]
         };
         var s = SKY[p], r = document.documentElement;
         r.setAttribute("data-period", p);
@@ -63,8 +63,8 @@
 
   <main class="g-main" id="app-root">
     <header class="g-hero">
-      <h1 class="g-hero__title">阳光花园</h1>
-      <p class="g-hero__sub" id="greeting">今天也要开花呀</p>
+      <h1 class="g-hero__title">星夜花园</h1>
+      <p class="g-hero__sub" id="greeting">夜色温柔，也照常开花</p>
       <p class="g-hero__meta">
         <span id="today-date">—</span> · <span id="period-note">—</span>
       </p>
@@ -112,7 +112,7 @@
     </section>
 
     <footer class="g-footer">
-      阳光花园 v2 · 数据存于本地浏览器 · 同步到仓库的数据是公开的，别写隐私
+      星夜花园 v2 · 数据存于本地浏览器 · 同步到仓库的数据是公开的，别写隐私
     </footer>
   </main>
 
