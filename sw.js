@@ -1,51 +1,73 @@
 /**
- * Service Worker for RUN-form「星河契约」
+ * Service Worker · 阳光花园 v2.0
  *
- * 策略：静态资源 precache + 数据/图片 network-first。
- * 原因：
- *   · HTML/JS/CSS 版本化强，适合预先缓存，离线直接打开
- *   · data/*.json 和背景图可能更新，network-first 保证最新；离线再读缓存
+ * 相比 v1 的三处关键改动（否则老用户浏览器会继续跑 v1 缓存，看到的还是星河页面）：
+ *   1. CACHE_VERSION 必须改 —— 版本号没变浏览器就不会重新安装，旧 index.html 一直生效。
+ *   2. HTML 改 **network-first**（v1 是 cache-first）：上线当天立刻拿到新页面；离线再回落缓存。
+ *   3. install 里 skipWaiting() + activate 里 clients.claim()，并**删除所有旧版本缓存**。
  *
- * 更新时机：文件内容变化 → sw.js 内容变化（本文件里的 CACHE_VERSION 常量）
- *          → 浏览器触发 install/activate 换缓存。
+ * 其余策略：
+ *   · JS / CSS：stale-while-revalidate（先给缓存保证秒开，后台悄悄更新）。
+ *   · data/*.json：network-first（永远要最新的仓库数据）。
+ *   · 非 GET / 跨域：直接放行，不接管。
+ *
+ * ⚠️ PRECACHE_ASSETS 里**绝不能**出现任何 v1 孤儿文件名（app.js / app2.js / styles.css …），
+ *    否则阶段二归档删除后预缓存会 404 并让 install 失败。
  */
 
-const CACHE_VERSION = "v6.1-20260808";
+const CACHE_VERSION = "v2.0-20260812";
 const STATIC_CACHE = `runform-static-${CACHE_VERSION}`;
 const DATA_CACHE = `runform-data-${CACHE_VERSION}`;
 
-/**
- * 必须离线可用的核心静态资源。
- * 注意：所有路径都是相对于 /RUN-form/ 子路径仓库。
- */
+/** 必须离线可用的核心静态资源（全部是 v2 新路径，路径相对 /RUN-form/ 子路径仓库）。 */
 const PRECACHE_ASSETS = [
   "/RUN-form/",
   "/RUN-form/index.html",
   "/RUN-form/manage.html",
+  "/RUN-form/shop.html",
   "/RUN-form/stats.html",
-  "/RUN-form/styles.css",
-  "/RUN-form/store.js",
-  "/RUN-form/components.js",
-  "/RUN-form/app.js",
-  "/RUN-form/app2.js",
-  "/RUN-form/app3.js",
-  // v6 模块：漏一个就是离线白屏，加文件必须同步加这里
-  "/RUN-form/sensory.js",
-  "/RUN-form/theme.js",
-  "/RUN-form/rank.js",
-  "/RUN-form/mood.js",
-  "/RUN-form/celebrate.js",
-  "/RUN-form/focus.js",
-  "/RUN-form/onboarding.js",
-  "/RUN-form/poster.js",
-  "/RUN-form/review.js",
-  "/RUN-form/shortcuts.js",
-  "/RUN-form/whitenoise.js",
-  "/RUN-form/ambient.js",
-  "/RUN-form/friendmap.js",
-  "/RUN-form/screensaver.js",
-  "/RUN-form/register-sw.js",
   "/RUN-form/manifest.webmanifest",
+  "/RUN-form/register-sw.js",
+
+  // 样式：tokens / base 由地基提供，其余 5 个由 B、C 组实现
+  "/RUN-form/styles/tokens.css",
+  "/RUN-form/styles/base.css",
+  "/RUN-form/styles/scene.css",
+  "/RUN-form/styles/pet.css",
+  "/RUN-form/styles/garden.css",
+  "/RUN-form/styles/ui.css",
+  "/RUN-form/styles/shop.css",
+
+  // 核心层
+  "/RUN-form/js/core/util.js",
+  "/RUN-form/js/core/bus.js",
+  "/RUN-form/js/core/storage.js",
+
+  // 数据层
+  "/RUN-form/js/data/schema.js",
+  "/RUN-form/js/data/store.js",
+
+  // 玩法系统层
+  "/RUN-form/js/systems/pet.js",
+  "/RUN-form/js/systems/garden.js",
+  "/RUN-form/js/systems/coupon.js",
+  "/RUN-form/js/systems/punishment.js",
+  "/RUN-form/js/systems/rpg.js",
+  "/RUN-form/js/systems/countdown.js",
+  "/RUN-form/js/systems/habits.js",
+
+  // 表现层
+  "/RUN-form/js/ui/scene.js",
+  "/RUN-form/js/ui/fx.js",
+  "/RUN-form/js/ui/components.js",
+
+  // 页面层
+  "/RUN-form/js/pages/home.js",
+  "/RUN-form/js/pages/manage.js",
+  "/RUN-form/js/pages/shop.js",
+  "/RUN-form/js/pages/stats.js",
+
+  // PWA 图标
   "/RUN-form/assets/icon-192.png",
   "/RUN-form/assets/icon-512.png",
   "/RUN-form/assets/icon-maskable-512.png",
@@ -53,10 +75,7 @@ const PRECACHE_ASSETS = [
   "/RUN-form/assets/favicon-32.png",
 ];
 
-/**
- * 检查某个 URL 是否属于我们托管在 GitHub Pages 上的资源。
- * 在本地 file:// 或 localhost 测试时，同源判定会不一样，这里尽量宽松。
- */
+/** 是否是本站同源资源（本地 file:// / localhost 下不接管）。 */
 function isSameOrigin(req) {
   try {
     const url = new URL(req.url);
@@ -67,25 +86,85 @@ function isSameOrigin(req) {
   }
 }
 
-/**
- * 优先命中 precache 清单里的资源。
- */
+/** @return {boolean} 是否命中预缓存清单 */
 function isPrecacheable(url) {
   return PRECACHE_ASSETS.some((p) => url.pathname === p || url.pathname === p + "/");
 }
 
-// ---- install：开新缓存并把核心资源塞进去 ----
+/** @return {boolean} */
+function isHTML(url) {
+  return url.pathname.endsWith(".html") || url.pathname.endsWith("/RUN-form/") || url.pathname === "/RUN-form";
+}
+
+/** @return {boolean} */
+function isData(url) {
+  return url.pathname.indexOf("/RUN-form/data/") === 0 && url.pathname.endsWith(".json");
+}
+
+/** 写入 DATA_CACHE（失败静默，缓存写不进不影响用户看到内容）。 */
+function putDataCache(req, resp) {
+  return caches.open(DATA_CACHE).then((cache) => cache.put(req, resp.clone())).catch(() => {});
+}
+
+/** 写入 STATIC_CACHE。 */
+function putStaticCache(req, resp) {
+  return caches.open(STATIC_CACHE).then((cache) => cache.put(req, resp.clone())).catch(() => {});
+}
+
+/** network-first：先网络，失败回落缓存。 */
+async function networkFirst(req, cacheName) {
+  try {
+    const resp = await fetch(req);
+    if (resp && resp.ok) {
+      if (cacheName === DATA_CACHE) putDataCache(req, resp);
+      else putStaticCache(req, resp);
+      return resp;
+    }
+    if (resp) return resp;
+    throw new Error("empty response");
+  } catch (err) {
+    const cached = await caches.match(req, { cacheName });
+    if (cached) return cached;
+    const anyCached = await caches.match(req);
+    if (anyCached) return anyCached;
+    throw err;
+  }
+}
+
+/** stale-while-revalidate：先给缓存，后台更新。 */
+async function staleWhileRevalidate(req) {
+  const cached = await caches.match(req, { cacheName: STATIC_CACHE });
+  const network = fetch(req)
+    .then((resp) => {
+      if (resp && resp.ok) putStaticCache(req, resp);
+      return resp;
+    })
+    .catch(() => null);
+  if (cached) return cached;
+  const resp = await network;
+  if (resp) return resp;
+  throw new Error("offline and no cache: " + req.url);
+}
+
+async function route(req) {
+  const url = new URL(req.url);
+  if (isData(url) || isHTML(url)) return networkFirst(req, isData(url) ? DATA_CACHE : STATIC_CACHE);
+  if (isPrecacheable(url)) return staleWhileRevalidate(req);
+  return networkFirst(req, STATIC_CACHE);
+}
+
+// ---- install：建新缓存并预缓存核心资源；skipWaiting 立刻接管 ----
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
       .then((cache) => cache.addAll(PRECACHE_ASSETS))
-      .catch((err) => console.error("[SW] precache 失败：", err))
+      .catch((err) => console.error("[SW] precache 失败（不阻塞安装）：", err))
   );
 });
 
-// ---- activate：清掉旧版本缓存 ----
+// ---- activate：清掉**所有**旧版本缓存（runform-* 且不等于当前两个）----
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
@@ -93,7 +172,7 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((k) => k.startsWith("runform-") && k !== STATIC_CACHE && k !== DATA_CACHE)
+            .filter((k) => k.indexOf("runform-") === 0 && k !== STATIC_CACHE && k !== DATA_CACHE)
             .map((k) => caches.delete(k))
         )
       )
@@ -101,51 +180,15 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// ---- fetch：静态 cache-first，数据 network-first ----
+// ---- fetch：只接管同源 GET ----
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-
-  // 非 GET 或跨域请求不处理
   if (req.method !== "GET") return;
   if (!isSameOrigin(req)) return;
-
   event.respondWith(route(req));
 });
 
-async function route(req) {
-  const url = new URL(req.url);
-
-  // 1) 核心静态资源：优先读缓存，缓存没有再请求并写入
-  if (isPrecacheable(url)) {
-    const cached = await caches.match(req, { cacheName: STATIC_CACHE });
-    if (cached) return cached;
-    try {
-      const resp = await fetch(req);
-      if (resp.ok) {
-        const cache = await caches.open(STATIC_CACHE);
-        cache.put(req, resp.clone());
-      }
-      return resp;
-    } catch (err) {
-      console.warn("[SW] 静态资源 fetch 失败且无缓存：", url.pathname, err);
-      throw err;
-    }
-  }
-
-  // 2) 数据文件 / 背景图：优先走网络，失败再读缓存
-  try {
-    const resp = await fetch(req);
-    if (resp.ok) {
-      const cache = await caches.open(DATA_CACHE);
-      cache.put(req, resp.clone());
-    }
-    return resp;
-  } catch (err) {
-    const cached = await caches.match(req, { cacheName: DATA_CACHE });
-    if (cached) {
-      console.warn("[SW] 网络失败，使用缓存：", url.pathname);
-      return cached;
-    }
-    throw err;
-  }
-}
+// ---- 页面主动调用：跳过等待立即换新版（register-sw.js 的横幅按钮用）----
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+});
