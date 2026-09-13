@@ -2,7 +2,9 @@
  * styles/pet.css —— 精灵形态 / 气泡 / 呼吸动画 + 四项状态条
  * 归属：B 组（T03）。只用 tokens.css 变量；动画只动 transform / opacity。
  *
- * 2026-09-13 精修：呼吸光环（按阶段变色）+ 缓慢旋转虚线光环 + 落地柔影 + 轻微摇摆。
+ * ★ 2026-09-13 改版：精灵化为「缓慢呼吸的光球」★
+ *   不再显示小动物 emoji（font-size:0 隐藏 JS 注入的字形），本体改为径向发光球：
+ *   核心高光 + 阶段色（--orb-core）+ 外圈柔光（--aura），缓慢缩放呼吸，外环虚线缓转。
  */
 
 .g-pet {
@@ -14,71 +16,77 @@
 }
 
 .g-pet__body {
-  --aura: rgba(152, 251, 152, 0.5);
-  font-size: 72px;
+  --orb-core: #5fd0e0;                 /* 光球核心色（按阶段被覆盖） */
+  --aura: rgba(95, 208, 224, 0.55);    /* 外圈柔光色（按阶段被覆盖） */
+  font-size: 0;                        /* 隐藏小动物 emoji，只留光球 */
   line-height: 1;
-  width: 120px;
-  height: 120px;
+  width: 124px;
+  height: 124px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   border-radius: 50%;
-  background: var(--g-glass-bg-strong);
+  background:
+    radial-gradient(circle at 50% 46%,
+      rgba(255, 255, 255, 0.96) 0%,
+      var(--orb-core) 26%,
+      rgba(255, 255, 255, 0) 72%);
   border: 1px solid var(--g-glass-border);
   box-shadow:
     var(--g-shadow-md),
-    0 16px 20px -12px rgba(58, 58, 74, 0.28),
-    0 0 30px 2px var(--aura);
+    0 18px 26px -16px rgba(0, 0, 0, 0.6),
+    0 0 46px 8px var(--aura);
   will-change: transform;
-  animation: g-pet-breathe 3.6s ease-in-out infinite;
+  animation: g-pet-breathe 3.8s ease-in-out infinite;
 }
 
-/* 缓慢旋转的虚线光环（绕在精灵外圈） */
+/* 缓慢旋转的虚线光环（绕在光球外圈） */
 .g-pet__body::before {
   content: "";
   position: absolute;
-  inset: -14px;
+  inset: -16px;
   border-radius: 50%;
   border: 2px dashed var(--aura);
-  opacity: 0.55;
-  animation: g-pet-ring 16s linear infinite;
+  opacity: 0.5;
+  animation: g-pet-ring 18s linear infinite;
   pointer-events: none;
 }
 
 @keyframes g-pet-breathe {
-  0%, 100% { transform: translateY(0) scale(1) rotate(0deg); }
-  50% { transform: translateY(-6px) scale(1.03) rotate(1.4deg); }
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-5px) scale(1.045); }
 }
 @keyframes g-pet-ring {
   to { transform: rotate(360deg); }
 }
 
-/* 各阶段 / 状态皮肤（仅 transform / opacity / 背景变化） */
-.g-pet__body--egg { background: var(--g-lemon-soft); --aura: rgba(224, 185, 63, 0.5); }
-.g-pet__body--baby { background: var(--g-sky-soft); --aura: rgba(79, 163, 199, 0.5); }
-.g-pet__body--grow { background: var(--g-mint-soft); --aura: rgba(99, 201, 119, 0.5); }
-.g-pet__body--mature { background: var(--g-coral-soft); --aura: rgba(240, 140, 163, 0.5); }
-.g-pet__body--evolve { background: var(--g-lavender-soft); --aura: rgba(185, 185, 232, 0.6); }
+/* 各阶段皮肤：仅换光球核心色与外圈柔光（emoji 已隐藏） */
+.g-pet__body--egg { --orb-core: #ffcf7a; --aura: rgba(255, 207, 122, 0.6); }
+.g-pet__body--baby { --orb-core: #5fd0e0; --aura: rgba(95, 208, 224, 0.6); }
+.g-pet__body--grow { --orb-core: #6fe0ac; --aura: rgba(111, 224, 172, 0.6); }
+.g-pet__body--mature { --orb-core: #ff9fb0; --aura: rgba(255, 159, 176, 0.6); }
+.g-pet__body--evolve { --orb-core: #b9a8ff; --aura: rgba(185, 168, 255, 0.7); }
 
-.g-pet__body--sick { filter: saturate(0.6); animation-duration: 5.5s; }
-.g-pet__body--sleep { animation-duration: 6s; opacity: 0.85; }
+.g-pet__body--sick { filter: saturate(0.6); animation-duration: 5.8s; }
+.g-pet__body--sleep { animation-duration: 6.2s; opacity: 0.9; }
 .g-pet__body--sleep::after {
   content: "💤";
   position: absolute;
   font-size: 18px;
-  margin: -54px 0 0 40px;
+  margin: -56px 0 0 42px;
 }
-.g-pet__body--faded { opacity: 0.5; filter: grayscale(0.5); }
-.g-pet__body--gone { opacity: 0.28; filter: grayscale(1); animation: none; }
-.g-pet__body--gone::before { animation: none; opacity: 0.2; }
+.g-pet__body--faded { opacity: 0.55; filter: grayscale(0.5); }
+.g-pet__body--gone { opacity: 0.3; filter: grayscale(1) brightness(0.8); animation: none; }
+.g-pet__body--gone::before { animation: none; opacity: 0.18; }
 
 .g-pet__bubble {
   max-width: 100%;
   padding: 8px 14px;
   border-radius: var(--g-radius-pill);
-  background: var(--g-white);
+  background: var(--g-glass-bg-strong);
   color: var(--g-ink);
+  border: 1px solid var(--g-glass-border);
   font-size: var(--g-fs-sm);
   box-shadow: var(--g-shadow-sm);
   position: relative;
@@ -92,7 +100,9 @@
   transform: translateX(-50%) rotate(45deg);
   width: 12px;
   height: 12px;
-  background: var(--g-white);
+  background: var(--g-glass-bg-strong);
+  border-left: 1px solid var(--g-glass-border);
+  border-top: 1px solid var(--g-glass-border);
 }
 
 .g-pet__stats {
