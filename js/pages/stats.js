@@ -165,7 +165,7 @@
     ctx.textAlign = "center";
     ctx.fillStyle = "#3a3a4a";
     ctx.font = "bold 26px system-ui, sans-serif";
-    ctx.fillText(RF.content.get("ui.stats.poster.title", "阳光花园 · 周报"), W / 2, 50);
+    ctx.fillText(RF.content.get("ui.stats.poster.title", "星夜花园 · 周报"), W / 2, 50);
 
     ctx.font = "64px system-ui, sans-serif";
     ctx.fillText(rk.emoji, W / 2, 130);
@@ -190,7 +190,7 @@
       var url = canvas.toDataURL("image/png");
       var a = document.createElement("a");
       a.href = url;
-      a.download = "阳光花园周报.png";
+      a.download = "星夜花园周报.png";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
