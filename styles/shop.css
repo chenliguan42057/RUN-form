@@ -126,7 +126,7 @@
   padding: 10px 12px;
   border-radius: var(--g-radius-md);
   border: 1px solid var(--g-line);
-  background: var(--g-white);
+  background: rgba(13, 18, 34, 0.9);
   color: var(--g-ink);
   font-size: var(--g-fs-md);
   transition: border-color var(--g-dur-fast) linear, box-shadow var(--g-dur-fast) linear;
@@ -177,9 +177,10 @@
   transition: background var(--g-dur-fast) linear, color var(--g-dur-fast) linear;
 }
 .g-tabs__tab.is-active {
-  background: var(--g-white);
-  color: var(--g-sky-deep);
-  box-shadow: var(--g-shadow-sm);
+  background: rgba(95, 208, 224, 0.18);
+  color: var(--g-sky);
+  border-color: var(--g-sky);
+  box-shadow: 0 0 16px rgba(95, 208, 224, 0.32), var(--g-shadow-sm);
 }
 
 /* ==================== 任务表（管理页） ==================== */
