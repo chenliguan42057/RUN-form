@@ -2,9 +2,9 @@
  * styles/scene.css —— 时段天空 / 极光 / 星空 / 山丘 / 草地 / 月亮 / 云 / 花瓣 / 萤火虫 / 天气覆盖
  * 归属：B 组（T03）。只用 tokens.css 变量；动画只动 transform / opacity。
  *
- * ★ 2026-09-13 改版：静谧暗夜 · 极光 ★
- *   深空藏蓝底 + 顶部极光光带（青/绿/紫，缓慢漂移、screen 混合发光）+ 静态星空 +
- *   柔和月亮（取代太阳）+ 暗色剪影山丘与草地。全部 transform/opacity 动画，尊重 reduced-motion。
+ * ★ 2026-09-13 改版（第二轮）：更亮 · 更浓极光 ★
+ *   提亮的深空底 + 顶部 5 道极光光带（青/绿/冰蓝/紫/品红，强 alpha、screen 发光、明显漂移）
+ *   + 静态星空 + 柔和月亮 + 暗蓝剪影山丘。边缘压暗减淡以整体提亮。全部 transform/opacity。
  */
 
 .g-scene {
@@ -15,15 +15,15 @@
   pointer-events: none;
 }
 
-/* 边缘氛围压暗：增加画面纵深（纯静态） */
+/* 边缘氛围压暗（减淡，整体更亮） */
 .g-scene::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(130% 90% at 50% -10%, transparent 46%, rgba(0, 0, 0, 0.55) 100%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 20%);
+    radial-gradient(130% 90% at 50% -10%, transparent 40%, rgba(0, 0, 0, 0.4) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 20%);
 }
 
 .g-scene__sky {
@@ -34,60 +34,62 @@
   overflow: hidden;
 }
 
-/* 极光光带：顶部两道模糊的青/绿/紫渐变，缓慢横向漂移 + 轻微呼吸（screen 发光） */
+/* 极光光带（更浓：5 道、强 alpha、screen 发光、明显漂移） */
 .g-scene__sky::before {
   content: "";
   position: absolute;
-  top: -8%;
-  left: -20%;
-  right: -20%;
-  height: 46%;
+  top: -10%;
+  left: -25%;
+  right: -25%;
+  height: 54%;
   pointer-events: none;
   background:
-    radial-gradient(60% 120% at 22% 30%, rgba(95, 208, 224, 0.40), rgba(95, 208, 224, 0) 60%),
-    radial-gradient(55% 120% at 50% 18%, rgba(111, 224, 172, 0.34), rgba(111, 224, 172, 0) 60%),
-    radial-gradient(60% 120% at 78% 34%, rgba(185, 168, 255, 0.36), rgba(185, 168, 255, 0) 62%);
-  filter: blur(38px);
+    radial-gradient(55% 130% at 16% 28%, rgba(95, 208, 224, 0.62), rgba(95, 208, 224, 0) 62%),
+    radial-gradient(50% 130% at 34% 16%, rgba(111, 224, 172, 0.55), rgba(111, 224, 172, 0) 62%),
+    radial-gradient(52% 130% at 52% 24%, rgba(150, 220, 255, 0.5), rgba(150, 220, 255, 0) 64%),
+    radial-gradient(55% 130% at 70% 18%, rgba(185, 168, 255, 0.6), rgba(185, 168, 255, 0) 64%),
+    radial-gradient(50% 130% at 86% 30%, rgba(255, 150, 210, 0.5), rgba(255, 150, 210, 0) 62%);
+  filter: blur(44px);
   mix-blend-mode: screen;
-  opacity: 0.85;
+  opacity: 0.95;
   transform: translateX(0) skewY(-4deg);
-  animation: g-aurora-drift 26s ease-in-out infinite;
+  animation: g-aurora-drift 22s ease-in-out infinite;
 }
 
-/* 星空：静态细点 + 一道极淡的银河微光（不闪，省电） */
+/* 星空（更亮一点） */
 .g-scene__sky::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(1.4px 1.4px at 12% 18%, rgba(255, 255, 255, 0.9), transparent 60%),
-    radial-gradient(1.2px 1.2px at 28% 32%, rgba(255, 255, 255, 0.75), transparent 60%),
-    radial-gradient(1.6px 1.6px at 44% 12%, rgba(220, 235, 255, 0.85), transparent 60%),
-    radial-gradient(1.2px 1.2px at 63% 26%, rgba(255, 255, 255, 0.7), transparent 60%),
-    radial-gradient(1.5px 1.5px at 78% 16%, rgba(255, 255, 255, 0.85), transparent 60%),
-    radial-gradient(1.2px 1.2px at 88% 38%, rgba(220, 235, 255, 0.7), transparent 60%),
-    radial-gradient(1.3px 1.3px at 36% 46%, rgba(255, 255, 255, 0.6), transparent 60%),
-    radial-gradient(1.1px 1.1px at 56% 52%, rgba(255, 255, 255, 0.55), transparent 60%),
-    radial-gradient(1.4px 1.4px at 70% 60%, rgba(220, 235, 255, 0.6), transparent 60%),
-    radial-gradient(120% 60% at 50% 8%, rgba(120, 150, 220, 0.10), transparent 55%);
+    radial-gradient(1.6px 1.6px at 12% 18%, rgba(255, 255, 255, 0.95), transparent 60%),
+    radial-gradient(1.4px 1.4px at 28% 32%, rgba(255, 255, 255, 0.8), transparent 60%),
+    radial-gradient(1.8px 1.8px at 44% 12%, rgba(225, 240, 255, 0.9), transparent 60%),
+    radial-gradient(1.4px 1.4px at 63% 26%, rgba(255, 255, 255, 0.78), transparent 60%),
+    radial-gradient(1.7px 1.7px at 78% 16%, rgba(255, 255, 255, 0.9), transparent 60%),
+    radial-gradient(1.4px 1.4px at 88% 38%, rgba(225, 240, 255, 0.78), transparent 60%),
+    radial-gradient(1.5px 1.5px at 36% 46%, rgba(255, 255, 255, 0.65), transparent 60%),
+    radial-gradient(1.3px 1.3px at 56% 52%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(1.6px 1.6px at 70% 60%, rgba(225, 240, 255, 0.66), transparent 60%),
+    radial-gradient(130% 64% at 50% 6%, rgba(140, 175, 235, 0.14), transparent 56%);
 }
 
 @keyframes g-aurora-drift {
-  0%, 100% { transform: translateX(-3%) skewY(-4deg) scaleY(1); opacity: 0.78; }
-  50% { transform: translateX(4%) skewY(-3deg) scaleY(1.08); opacity: 0.95; }
+  0%, 100% { transform: translateX(-4%) skewY(-4deg) scaleY(1); opacity: 0.85; }
+  50% { transform: translateX(6%) skewY(-2deg) scaleY(1.12); opacity: 1; }
 }
 
-/* 山丘三层叠嶂（暗色剪影）：本元素=远山，::before=中景，::after=近山 */
+/* 山丘三层叠嶂（暗蓝剪影，提亮一档）：本元素=远山，::before=中景，::after=近山 */
 .g-scene__hills {
   position: absolute;
   left: -6%;
   right: -6%;
   bottom: 11%;
   height: 30vh;
-  background: #11182e;
+  background: #1c2c4e;
   border-radius: 50% 50% 0 0 / 100% 100% 0 0;
-  opacity: 0.92;
+  opacity: 0.95;
 }
 .g-scene__hills::before {
   content: "";
@@ -96,7 +98,7 @@
   right: -4%;
   bottom: -6%;
   height: 27vh;
-  background: #0e1426;
+  background: #16223e;
   border-radius: 50% 50% 0 0 / 100% 100% 0 0;
   opacity: 1;
 }
@@ -107,7 +109,7 @@
   right: -2%;
   bottom: -10%;
   height: 23vh;
-  background: #0a0f1f;
+  background: #0f1830;
   border-radius: 50% 50% 0 0 / 100% 100% 0 0;
   opacity: 1;
 }
@@ -128,11 +130,11 @@
   left: 0;
   right: 0;
   height: 7px;
-  background: linear-gradient(180deg, rgba(180, 210, 255, 0.12), transparent);
+  background: linear-gradient(180deg, rgba(180, 210, 255, 0.16), transparent);
   pointer-events: none;
 }
 
-/* 月亮（取代太阳）：柔和冷白光球 + 呼吸光晕，无光芒 */
+/* 月亮（取代太阳）：柔和冷白光球 + 呼吸光晕 */
 .g-scene__sun {
   position: absolute;
   top: 8%;
@@ -140,17 +142,16 @@
   width: 58px;
   height: 58px;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, #fdfdff 0%, #cdd6f0 56%, rgba(205, 214, 240, 0) 100%);
-  box-shadow: 0 0 30px rgba(205, 214, 240, 0.45);
+  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #d4ddf6 56%, rgba(212, 221, 246, 0) 100%);
+  box-shadow: 0 0 34px rgba(212, 221, 246, 0.55);
 }
 .g-scene__sun::before { content: none; }
-/* 呼吸光晕 */
 .g-scene__sun::after {
   content: "";
   position: absolute;
   inset: -26px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(205, 214, 240, 0.32) 0%, rgba(205, 214, 240, 0.10) 46%, transparent 70%);
+  background: radial-gradient(circle, rgba(212, 221, 246, 0.36) 0%, rgba(212, 221, 246, 0.12) 46%, transparent 70%);
   animation: g-moon-halo 7s ease-in-out infinite;
   pointer-events: none;
 }
@@ -159,12 +160,12 @@
   50% { opacity: 0.9; transform: scale(1.06); }
 }
 
-/* 云：暗夜里化作极淡冷雾，低存在感 */
+/* 云：暗夜里化作极淡冷雾 */
 .g-cloud {
   position: absolute;
   width: 120px;
   height: 38px;
-  background: rgba(170, 188, 222, 0.10);
+  background: rgba(180, 198, 230, 0.12);
   border-radius: 40px;
   filter: blur(3px);
   opacity: 0.5;
@@ -263,21 +264,21 @@
   opacity: 0;
 }
 .g-scene__weather--clear { opacity: 0; }
-.g-scene__weather--cloudy { background: rgba(40, 50, 80, 0.22); opacity: 1; }
-.g-scene__weather--gray { background: rgba(28, 34, 56, 0.38); opacity: 1; }
-.g-scene__weather--fallen { background: rgba(18, 16, 28, 0.5); opacity: 1; }
-.g-scene__weather--bw { background: rgba(10, 10, 16, 0.55); opacity: 1; }
+.g-scene__weather--cloudy { background: rgba(40, 50, 80, 0.18); opacity: 1; }
+.g-scene__weather--gray { background: rgba(28, 34, 56, 0.32); opacity: 1; }
+.g-scene__weather--fallen { background: rgba(18, 16, 28, 0.44); opacity: 1; }
+.g-scene__weather--bw { background: rgba(10, 10, 16, 0.5); opacity: 1; }
 html[data-weather="bw"] .g-scene__sky,
 html[data-weather="bw"] .g-scene__hills,
 html[data-weather="bw"] .g-scene__hills::before,
 html[data-weather="bw"] .g-scene__hills::after,
 html[data-weather="bw"] .g-scene__grass { filter: grayscale(1); }
 
-/* 夜间山丘：略偏蓝的剪影（仅真实 night 时段启用，叠加在暗底之上，制造微妙层次） */
-html[data-period="night"] .g-scene__hills { background: #1a2342; }
-html[data-period="night"] .g-scene__hills::before { background: #141c38; }
-html[data-period="night"] .g-scene__hills::after { background: #0e1530; }
-html[data-period="night"] .g-scene__grass { background: linear-gradient(180deg, #131d36, #0a1020); }
+/* 夜间山丘：略偏蓝的剪影（仅真实 night 时段） */
+html[data-period="night"] .g-scene__hills { background: #22325a; }
+html[data-period="night"] .g-scene__hills::before { background: #1a2748; }
+html[data-period="night"] .g-scene__hills::after { background: #122042; }
+html[data-period="night"] .g-scene__grass { background: linear-gradient(180deg, #1a2c50, #0e1a36); }
 
 /* 尊重系统「减弱动态效果」偏好：关闭纯装饰循环动画 */
 @media (prefers-reduced-motion: reduce) {
