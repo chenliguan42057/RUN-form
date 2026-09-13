@@ -224,7 +224,7 @@ const PREFS_KEY = "runform_prefs";
 /** 主题色板：key → 渐变与光晕。与 styles.css 的 .theme-<key> 一一对应 */
 const COLOR_THEMES = {
   gold:   { label: "麦田金", from: "#f2c14e", to: "#e0a82e", glow: "242,193,78"  },
-  blue:   { label: "星夜蓝", from: "#4a86d8", to: "#1b3a6b", glow: "74,134,216"  },
+  blue:   { label: "极光蓝", from: "#4a86d8", to: "#1b3a6b", glow: "74,134,216"  },
   teal:   { label: "海潮青", from: "#2a9d8f", to: "#1d6f74", glow: "42,157,143"  },
   violet: { label: "暮夜紫", from: "#8b7ae8", to: "#4b3f9e", glow: "139,122,232" },
   rose:   { label: "杏花粉", from: "#e58ba6", to: "#a13b5e", glow: "229,139,166" },
