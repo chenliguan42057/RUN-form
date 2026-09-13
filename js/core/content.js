@@ -198,7 +198,7 @@
         shopExchangeOk: "兑换成功：{name}",
         shopExchangeFail: "兑换失败",
         posterFail: "海报生成失败",
-        pushTest: "阳光花园测试推送",
+        pushTest: "星夜花园测试推送",
         contentSavedLocal: "已存本机（仅此设备生效）",
         contentSavedRepo: "已提交仓库 ✅ 全设备生效",
         contentSaveFail: "本机保存失败",
@@ -223,7 +223,7 @@
       stats: {
         ring: { empty: "今天没有任务，去管理页加几个吧", perfect: "今日全勤，花园盛开 🌷", pending: "还差 {n} 项就全勤" },
         rankNext: { progress: "距「{name}」还差 {n} 分", maxed: "已是最高段位 🏵" },
-        poster: { title: "阳光花园 · 周报", hint: "长按图片可保存周报 📸" }
+        poster: { title: "星夜花园 · 周报", hint: "长按图片可保存周报 📸" }
       },
       shop: { owned: "已有 {n} 个", exchangeBtn: "¥{n} 兑换" },
       punishment: {
