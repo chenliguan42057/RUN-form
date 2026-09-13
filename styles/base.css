@@ -127,10 +127,10 @@ table {
   color: var(--g-text-soft);
 }
 
-/* ---------------- 滚动条 ---------------- */
+/* ---------------- 滚动条（暗底：浅色半透明） ---------------- */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(58, 58, 74, 0.25) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -139,12 +139,12 @@ table {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(58, 58, 74, 0.22);
+  background: rgba(255, 255, 255, 0.18);
   border-radius: var(--g-radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(58, 58, 74, 0.35);
+  background: rgba(255, 255, 255, 0.3);
 }
 
 ::-webkit-scrollbar-track {
@@ -173,8 +173,9 @@ table {
   font-size: var(--g-fs-2xl);
   font-weight: 800;
   color: var(--g-white);
-  -webkit-text-stroke: 2px rgba(255, 255, 255, 0.85);
+  -webkit-text-stroke: 2px rgba(200, 230, 255, 0.9);
   paint-order: stroke fill;
+  text-shadow: 0 0 20px rgba(95, 208, 224, 0.42);
 }
 
 .g-hero__sub {
@@ -223,9 +224,10 @@ table {
 }
 
 .g-nav__link--active {
-  background: var(--g-white);
-  color: var(--g-sky-deep);
-  box-shadow: var(--g-shadow-md);
+  background: rgba(95, 208, 224, 0.18);
+  color: var(--g-sky);
+  border-color: var(--g-sky);
+  box-shadow: 0 0 18px rgba(95, 208, 224, 0.35), var(--g-shadow-md);
 }
 
 /* ---------------- 页脚 ---------------- */
@@ -246,7 +248,7 @@ table {
   max-width: 86vw;
   padding: 10px 18px;
   border-radius: var(--g-radius-pill);
-  background: rgba(58, 58, 74, 0.92);
+  background: rgba(12, 16, 32, 0.92);
   color: var(--g-white);
   font-size: var(--g-fs-sm);
   opacity: 0;
