@@ -355,7 +355,7 @@
     });
     if ($("test-push-btn")) $("test-push-btn").addEventListener("click", function () {
       if (RF.fx) RF.fx.toastKey("pushTest", null, "info");
-      try { if (S().dispatchViaProxy) S().dispatchViaProxy("test-push", { msg: "阳光花园测试推送" }); } catch (e) {}
+      try { if (S().dispatchViaProxy) S().dispatchViaProxy("test-push", { msg: "星夜花园测试推送" }); } catch (e) {}
     });
   }
 
