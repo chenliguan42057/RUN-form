@@ -1,5 +1,5 @@
 /**
- * PWA Service Worker 注册 · 阳光花园 v2
+ * PWA Service Worker 注册 · 星夜花园 v2
  *
  * 设计得很克制：
  *   · 只在安全上下文（HTTPS / localhost）尝试注册，file:// 直接跳过
