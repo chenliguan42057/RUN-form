@@ -6,73 +6,77 @@
  *   · B/C/D 组只能用这里定义的变量，**不得再硬编码颜色 / 圆角 / 阴影**。
  *   · 变量命名 --g-<语义>（设计文档 §8.1）。
  *   · 时段天空色由防闪脚本与 js/ui/scene.js 覆盖 --g-sky-from / --g-sky-to，
- *     本文件只提供 6 个时段的**定义**与白天默认值。
+ *     本文件只提供 6 个时段的**定义**与默认（暗夜）值。
  *
- * 字体：不引外链 CDN，用 system-ui + 圆润 fallback 栈；标题描边用 -webkit-text-stroke。
+ * 2026-09-13 改版：★ 静谧暗夜 · 极光 ★
+ *   深空藏蓝 / 炭黑底 + 磨砂玻璃卡片 + 冷静的青 / 琥珀 / 极光紫点缀。
+ *   六主色改为低饱和冷调；纸面与玻璃改为暗色半透明；文字转为浅色。
+ *   字体：不引外链 CDN，用 system-ui + 圆润 fallback 栈；标题描边用 -webkit-text-stroke。
  */
+
 :root {
-  /* ============ 六主色（设计文档 §2.2 指定） ============ */
-  --g-sky: #87ceeb;         /* 天空蓝 */
-  --g-mint: #98fb98;        /* 薄荷绿 */
-  --g-lemon: #ffe66d;       /* 柠檬黄 */
-  --g-coral: #ffb6c1;       /* 珊瑚粉 */
-  --g-lavender: #e6e6fa;    /* 薰衣草紫 */
-  --g-orange: #ffa07a;      /* 暖橙 */
+  /* ============ 六主色（极光冷调 · 低饱和） ============ */
+  --g-sky: #5fd0e0;         /* 极光青 */
+  --g-mint: #6fe0ac;        /* 极光绿 */
+  --g-lemon: #ffcf7a;       /* 暖琥珀 */
+  --g-coral: #ff9fb0;       /* 柔玫瑰 */
+  --g-lavender: #b9a8ff;    /* 极光紫 */
+  --g-orange: #ffb07a;      /* 暖橙 */
 
   /* 主色加深（文字 / 描边 / 进度条底色用） */
-  --g-sky-deep: #4fa3c7;
-  --g-mint-deep: #63c977;
-  --g-lemon-deep: #e0b93f;
-  --g-coral-deep: #f08ca3;
-  --g-lavender-deep: #b9b9e8;
+  --g-sky-deep: #2f9fb8;
+  --g-mint-deep: #34b888;
+  --g-lemon-deep: #e0a23f;
+  --g-coral-deep: #e87a93;
+  --g-lavender-deep: #8f7ae8;
   --g-orange-deep: #e8764f;
 
-  /* 主色减淡（卡片底 / 高亮底用） */
-  --g-sky-soft: #dff1fb;
-  --g-mint-soft: #e4fce4;
-  --g-lemon-soft: #fff8d6;
-  --g-coral-soft: #ffeef2;
-  --g-lavender-soft: #f4f4fe;
-  --g-orange-soft: #ffece3;
+  /* 主色减淡（卡片底 / 高亮底用 · 暗色半透明） */
+  --g-sky-soft: rgba(95, 208, 224, 0.14);
+  --g-mint-soft: rgba(111, 224, 172, 0.14);
+  --g-lemon-soft: rgba(255, 207, 122, 0.14);
+  --g-coral-soft: rgba(255, 159, 176, 0.14);
+  --g-lavender-soft: rgba(185, 168, 255, 0.14);
+  --g-orange-soft: rgba(255, 176, 122, 0.14);
 
-  /* ============ 中性色 ============ */
-  --g-ink: #3a3a4a;
-  --g-ink-soft: #6b6b80;
-  --g-paper: #fffdf7;
-  --g-paper-2: #fdf7ea;
-  --g-line: rgba(58, 58, 74, 0.12);
-  --g-white: #ffffff;
+  /* ============ 中性色（暗夜） ============ */
+  --g-ink: #e8ecf5;          /* 主文字（浅） */
+  --g-ink-soft: #a7b0c4;     /* 次文字（浅） */
+  --g-paper: #161d33;        /* 暗纸面 */
+  --g-paper-2: #1b2542;      /* 暗纸面 2 */
+  --g-line: rgba(255, 255, 255, 0.10);  /* 暗底上的浅描边 */
+  --g-white: #ffffff;        /* 纯白（暗底上的浅文字 / 高光，保留） */
 
-  /* ============ 6 个时段的天空色（设计文档 §5.11 PERIODS） ============ */
-  --g-sky-sunrise-from: #ffd1b3;
-  --g-sky-sunrise-to: #ffb6c1;
+  /* ============ 6 个时段的天空色（深空 · 全暗，仅微差） ============ */
+  --g-sky-sunrise-from: #141833;
+  --g-sky-sunrise-to: #241d4a;
 
-  --g-sky-morning-from: #87ceeb;
-  --g-sky-morning-to: #bfefff;
+  --g-sky-morning-from: #0d1b32;
+  --g-sky-morning-to: #143049;
 
-  --g-sky-noon-from: #ffe66d;
-  --g-sky-noon-to: #fff3b0;
+  --g-sky-noon-from: #0b1d3a;
+  --g-sky-noon-to: #103950;
 
-  --g-sky-golden-from: #ffe9a8;
-  --g-sky-golden-to: #98fb98;
+  --g-sky-golden-from: #151a39;
+  --g-sky-golden-to: #2a2348;
 
-  --g-sky-dusk-from: #ffa07a;
-  --g-sky-dusk-to: #e6e6fa;
+  --g-sky-dusk-from: #141539;
+  --g-sky-dusk-to: #311f44;
 
-  --g-sky-night-from: #1b2a5b;
-  --g-sky-night-to: #3d5a98;
+  --g-sky-night-from: #070b1c;
+  --g-sky-night-to: #121a3a;
 
-  /* 当前生效的天空（被防闪脚本 / scene.js 覆盖） */
+  /* 当前生效的天空（被防闪脚本 / scene.js 覆盖；默认 = 暗色早晨） */
   --g-sky-from: var(--g-sky-morning-from);
   --g-sky-to: var(--g-sky-morning-to);
 
-  /* 地面与文字：夜间会由 scene.css 按 [data-period="night"] 反色 */
-  --g-grass-from: #a8e6a3;
-  --g-grass-to: #6fc47a;
-  --g-hill: #bfeec0;
+  /* 地面与文字：暗夜统一反色（浅字 + 暗地） */
+  --g-grass-from: #16203a;
+  --g-grass-to: #0c1322;
+  --g-hill: #1a2238;
   --g-text: var(--g-ink);
   --g-text-soft: var(--g-ink-soft);
-  --g-text-on-sky: var(--g-ink);
+  --g-text-on-sky: #cdd6ea;
 
   /* ============ 圆角 ============ */
   --g-radius-sm: 10px;
@@ -81,15 +85,15 @@
   --g-radius-xl: 32px;
   --g-radius-pill: 999px;
 
-  /* ============ 阴影 ============ */
-  --g-shadow-sm: 0 2px 8px rgba(58, 58, 74, 0.08);
-  --g-shadow-md: 0 8px 24px rgba(58, 58, 74, 0.12);
-  --g-shadow-lg: 0 16px 40px rgba(58, 58, 74, 0.18);
+  /* ============ 阴影（暗底：更深更聚） ============ */
+  --g-shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
+  --g-shadow-md: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --g-shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.55);
 
-  /* ============ 毛玻璃 ============ */
-  --g-glass-bg: rgba(255, 255, 255, 0.62);
-  --g-glass-bg-strong: rgba(255, 255, 255, 0.82);
-  --g-glass-border: rgba(255, 255, 255, 0.75);
+  /* ============ 毛玻璃（暗色半透明） ============ */
+  --g-glass-bg: rgba(22, 29, 51, 0.55);
+  --g-glass-bg-strong: rgba(26, 37, 66, 0.78);
+  --g-glass-border: rgba(255, 255, 255, 0.14);
   --g-glass-blur: 14px;
 
   /* ============ 字体栈（无外链 CDN） ============ */
@@ -127,7 +131,7 @@
   --g-dur-slow: 720ms;
   --g-ease: cubic-bezier(0.34, 1.36, 0.64, 1);
 
-  /* ============ 四项状态条（精灵） ============ */
+  /* ============ 四项状态条（精灵光球） ============ */
   --g-stat-food: var(--g-orange);
   --g-stat-mood: var(--g-coral);
   --g-stat-energy: var(--g-lemon);
