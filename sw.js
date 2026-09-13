@@ -1,5 +1,5 @@
 /**
- * Service Worker · 阳光花园 v2.0
+ * Service Worker · 星夜花园 v2.0
  *
  * 相比 v1 的三处关键改动（否则老用户浏览器会继续跑 v1 缓存，看到的还是星河页面）：
  *   1. CACHE_VERSION 必须改 —— 版本号没变浏览器就不会重新安装，旧 index.html 一直生效。
@@ -15,7 +15,7 @@
  *    否则阶段二归档删除后预缓存会 404 并让 install 失败。
  */
 
-const CACHE_VERSION = "v2.0-20260913";
+const CACHE_VERSION = "v2.0-20260913b";
 const STATIC_CACHE = `runform-static-${CACHE_VERSION}`;
 const DATA_CACHE = `runform-data-${CACHE_VERSION}`;
 
