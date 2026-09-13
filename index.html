@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#0a0e23" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="星夜花园" />
-  <title>星夜花园 · 在静谧里慢慢开花</title>
+  <meta name="apple-mobile-web-app-title" content="RUN" />
+  <title>RUN · 在静谧里慢慢开花</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
@@ -20,9 +20,9 @@
         var p = h < 6 ? "night" : h < 9 ? "sunrise" : h < 12 ? "morning"
               : h < 14 ? "noon" : h < 18 ? "golden" : h < 20 ? "dusk" : "night";
         var SKY = {
-          sunrise: ["#141833", "#241d4a"], morning: ["#0d1b32", "#143049"],
-          noon: ["#0b1d3a", "#103950"], golden: ["#151a39", "#2a2348"],
-          dusk: ["#141539", "#311f44"], night: ["#070b1c", "#121a3a"]
+          sunrise: ["#243063", "#3c2f72"], morning: ["#184a73", "#1f7090"],
+          noon: ["#154b73", "#1c7c92"], golden: ["#26365c", "#3b3b78"],
+          dusk: ["#272d63", "#4c2f68"], night: ["#0f1d44", "#213e72"]
         };
         var s = SKY[p], r = document.documentElement;
         r.setAttribute("data-period", p);
@@ -63,7 +63,7 @@
 
   <main class="g-main" id="app-root">
     <header class="g-hero">
-      <h1 class="g-hero__title">星夜花园</h1>
+      <h1 class="g-hero__title">RUN</h1>
       <p class="g-hero__sub" id="greeting">夜色温柔，也照常开花</p>
       <p class="g-hero__meta">
         <span id="today-date">—</span> · <span id="period-note">—</span>
@@ -112,7 +112,7 @@
     </section>
 
     <footer class="g-footer">
-      星夜花园 v2 · 数据存于本地浏览器 · 同步到仓库的数据是公开的，别写隐私
+      RUN v2 · 数据存于本地浏览器 · 同步到仓库的数据是公开的，别写隐私
     </footer>
   </main>
 
