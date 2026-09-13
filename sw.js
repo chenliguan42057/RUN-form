@@ -15,7 +15,7 @@
  *    否则阶段二归档删除后预缓存会 404 并让 install 失败。
  */
 
-const CACHE_VERSION = "v2.0-20260812";
+const CACHE_VERSION = "v2.0-20260913";
 const STATIC_CACHE = `runform-static-${CACHE_VERSION}`;
 const DATA_CACHE = `runform-data-${CACHE_VERSION}`;
 
@@ -42,6 +42,8 @@ const PRECACHE_ASSETS = [
   "/RUN-form/js/core/util.js",
   "/RUN-form/js/core/bus.js",
   "/RUN-form/js/core/storage.js",
+  "/RUN-form/js/core/boot.js",
+  "/RUN-form/js/core/content.js",
 
   // 数据层
   "/RUN-form/js/data/schema.js",
