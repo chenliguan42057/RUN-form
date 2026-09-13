@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-period="night">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>预览 · RUN（更亮极光 · 习惯花园）</title>
+  <link rel="stylesheet" href="../styles/tokens.css" />
+  <link rel="stylesheet" href="../styles/base.css" />
+  <link rel="stylesheet" href="../styles/scene.css" />
+  <link rel="stylesheet" href="../styles/pet.css" />
+  <link rel="stylesheet" href="../styles/garden.css" />
+  <link rel="stylesheet" href="../styles/ui.css" />
+  <link rel="stylesheet" href="../styles/shop.css" />
+  <style>
+    .demo-actions { display: flex; gap: 8px; justify-content: center; margin: 4px 0 8px; }
+  </style>
+</head>
+<body>
+  <!-- 场景层（与 index.html 一致） -->
+  <div class="g-scene" aria-hidden="true">
+    <div class="g-scene__sky"></div>
+    <div class="g-scene__clouds"></div>
+    <div class="g-scene__rainbow"></div>
+    <div class="g-scene__sun"></div>
+    <div class="g-scene__hills"></div>
+    <div class="g-scene__grass"></div>
+    <div class="g-scene__decor"></div>
+    <div class="g-scene__particles"></div>
+    <div class="g-scene__weather"></div>
+  </div>
+
+  <nav class="g-nav">
+    <a class="g-nav__link g-nav__link--active" href="#">🏡 花园</a>
+    <a class="g-nav__link" href="#">📝 管理</a>
+    <a class="g-nav__link" href="#">🧺 市集</a>
+    <a class="g-nav__link" href="#">📖 档案</a>
+  </nav>
+
+  <main class="g-main">
+    <header class="g-hero">
+      <h1 class="g-hero__title">RUN</h1>
+      <p class="g-hero__sub">夜色温柔，也照常开花</p>
+      <p class="g-hero__meta">2026-09-13 · 静谧暗夜 · 极光</p>
+    </header>
+
+    <!-- 精灵光球 -->
+    <section class="g-card g-card--pet">
+      <div class="g-pet">
+        <div class="g-pet__body g-pet__body--grow">🌱</div>
+        <div class="g-pet__bubble">今晚的星星格外亮 ✨</div>
+      </div>
+      <div class="g-pet__stats">
+        <div class="g-stat"><span class="g-stat__label">饱食</span><div class="g-bar"><div class="g-bar__track"><div class="g-bar__fill" style="transform:scaleX(0.8)"></div></div></div></div>
+        <div class="g-stat"><span class="g-stat__label">心情</span><div class="g-bar"><div class="g-bar__track"><div class="g-bar__fill" style="transform:scaleX(0.65);--bar-color:var(--g-coral)"></div></div></div></div>
+        <div class="g-stat"><span class="g-stat__label">能量</span><div class="g-bar"><div class="g-bar__track"><div class="g-bar__fill" style="transform:scaleX(0.9);--bar-color:var(--g-lemon)"></div></div></div></div>
+        <div class="g-stat"><span class="g-stat__label">亲密</span><div class="g-bar"><div class="g-bar__track"><div class="g-bar__fill" style="transform:scaleX(0.5);--bar-color:var(--g-lavender-deep)"></div></div></div></div>
+      </div>
+    </section>
+
+    <!-- 倒计时 -->
+    <section class="g-card">
+      <h2 class="g-card__title">⏳ 今天还剩</h2>
+      <p class="g-countdown u-num">08:24:11</p>
+      <p class="u-hint">距 7 天里程碑还有 3 天</p>
+    </section>
+
+    <!-- 任务 -->
+    <section class="g-card">
+      <div class="g-card__head u-row u-row--between">
+        <h2 class="g-card__title">🌷 今日任务</h2>
+        <a class="u-btn u-btn--ghost u-btn--sm" href="#">＋ 新增</a>
+      </div>
+      <ul class="g-task-list">
+        <li class="g-task is-done"><div class="g-task__check">✓</div><div class="g-task__main"><span class="g-task__name">晨间拉伸</span><span class="g-task__meta">已完成</span></div></li>
+        <li class="g-task"><div class="g-task__check"></div><div class="g-task__main"><span class="g-task__name">读书 30 分钟</span><span class="g-task__meta">待完成</span></div><span class="g-task__tag">+5 分</span></li>
+        <li class="g-task"><div class="g-task__check"></div><div class="g-task__main"><span class="g-task__name">喝水 2L</span><span class="g-task__meta">待完成</span></div></li>
+      </ul>
+    </section>
+
+    <!-- 花园 -->
+    <section class="g-card">
+      <div class="g-card__head u-row u-row--between">
+        <h2 class="g-card__title">🌻 我的花园</h2>
+        <span class="u-badge">4 / 5</span>
+      </div>
+      <div class="g-garden">
+        <div class="g-flower g-flower--s0"><div class="g-flower__bloom">🌱</div><div class="g-flower__label">种子</div></div>
+        <div class="g-flower g-flower--s2"><div class="g-flower__bloom">🌷</div><div class="g-flower__label">郁金香</div></div>
+        <div class="g-flower g-flower--s3"><div class="g-flower__bloom">🌹</div><div class="g-flower__label">玫瑰</div></div>
+        <div class="g-flower g-flower--s4"><div class="g-flower__bloom">🌻</div><div class="g-flower__label">向日葵</div></div>
+        <div class="g-flower is-withered"><div class="g-flower__bloom">🥀</div><div class="g-flower__label">凋零</div></div>
+      </div>
+    </section>
+
+    <!-- 连续全勤 -->
+    <section class="g-card">
+      <h2 class="g-card__title">🔥 连续全勤</h2>
+      <p class="g-streak u-num">12 天 · 最佳 21 天</p>
+      <p class="u-hint">再坚持几天，就能拿到野餐篮美食券啦。</p>
+    </section>
+
+    <div class="demo-actions">
+      <button class="u-btn u-btn--primary" id="open-modal">打开弹窗看看暗色玻璃</button>
+    </div>
+
+    <footer class="g-footer">RUN v2 · 预览页（真实 CSS）</footer>
+  </main>
+
+  <!-- 弹窗（暗色玻璃） -->
+  <div class="g-overlay" id="overlay">
+    <div class="g-modal">
+      <h3 class="g-modal__title">野餐篮美食券</h3>
+      <div class="g-modal__body"><p>恭喜连续全勤 7 天，获得一张野餐篮美食券 🧺</p></div>
+      <div class="g-modal__actions">
+        <button class="u-btn u-btn--ghost" id="close-modal">稍后</button>
+        <button class="u-btn u-btn--primary" id="close-modal-2">去市集</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var ov = document.getElementById("overlay");
+    document.getElementById("open-modal").addEventListener("click", function () { ov.classList.add("is-open"); });
+    function close() { ov.classList.remove("is-open"); }
+    document.getElementById("close-modal").addEventListener("click", close);
+    document.getElementById("close-modal-2").addEventListener("click", close);
+    ov.addEventListener("click", function (e) { if (e.target === ov) close(); });
+  </script>
+</body>
+</html>
