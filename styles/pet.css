@@ -1,6 +1,8 @@
 /**
  * styles/pet.css —— 精灵形态 / 气泡 / 呼吸动画 + 四项状态条
  * 归属：B 组（T03）。只用 tokens.css 变量；动画只动 transform / opacity。
+ *
+ * 2026-09-13 精修：呼吸光环（按阶段变色）+ 缓慢旋转虚线光环 + 落地柔影 + 轻微摇摆。
  */
 
 .g-pet {
@@ -12,6 +14,7 @@
 }
 
 .g-pet__body {
+  --aura: rgba(152, 251, 152, 0.5);
   font-size: 72px;
   line-height: 1;
   width: 120px;
@@ -19,24 +22,44 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
   border-radius: 50%;
   background: var(--g-glass-bg-strong);
   border: 1px solid var(--g-glass-border);
-  box-shadow: var(--g-shadow-md);
+  box-shadow:
+    var(--g-shadow-md),
+    0 16px 20px -12px rgba(58, 58, 74, 0.28),
+    0 0 30px 2px var(--aura);
   will-change: transform;
   animation: g-pet-breathe 3.6s ease-in-out infinite;
 }
+
+/* 缓慢旋转的虚线光环（绕在精灵外圈） */
+.g-pet__body::before {
+  content: "";
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  border: 2px dashed var(--aura);
+  opacity: 0.55;
+  animation: g-pet-ring 16s linear infinite;
+  pointer-events: none;
+}
+
 @keyframes g-pet-breathe {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-6px) scale(1.03); }
+  0%, 100% { transform: translateY(0) scale(1) rotate(0deg); }
+  50% { transform: translateY(-6px) scale(1.03) rotate(1.4deg); }
+}
+@keyframes g-pet-ring {
+  to { transform: rotate(360deg); }
 }
 
 /* 各阶段 / 状态皮肤（仅 transform / opacity / 背景变化） */
-.g-pet__body--egg { background: var(--g-lemon-soft); }
-.g-pet__body--baby { background: var(--g-sky-soft); }
-.g-pet__body--grow { background: var(--g-mint-soft); }
-.g-pet__body--mature { background: var(--g-coral-soft); }
-.g-pet__body--evolve { background: var(--g-lavender-soft); }
+.g-pet__body--egg { background: var(--g-lemon-soft); --aura: rgba(224, 185, 63, 0.5); }
+.g-pet__body--baby { background: var(--g-sky-soft); --aura: rgba(79, 163, 199, 0.5); }
+.g-pet__body--grow { background: var(--g-mint-soft); --aura: rgba(99, 201, 119, 0.5); }
+.g-pet__body--mature { background: var(--g-coral-soft); --aura: rgba(240, 140, 163, 0.5); }
+.g-pet__body--evolve { background: var(--g-lavender-soft); --aura: rgba(185, 185, 232, 0.6); }
 
 .g-pet__body--sick { filter: saturate(0.6); animation-duration: 5.5s; }
 .g-pet__body--sleep { animation-duration: 6s; opacity: 0.85; }
@@ -48,6 +71,7 @@
 }
 .g-pet__body--faded { opacity: 0.5; filter: grayscale(0.5); }
 .g-pet__body--gone { opacity: 0.28; filter: grayscale(1); animation: none; }
+.g-pet__body--gone::before { animation: none; opacity: 0.2; }
 
 .g-pet__bubble {
   max-width: 100%;
@@ -100,4 +124,10 @@
   font-weight: 800;
   color: var(--g-sky-deep);
   line-height: 1.1;
+}
+
+/* 尊重系统「减弱动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .g-pet__body,
+  .g-pet__body::before { animation: none; }
 }
