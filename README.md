@@ -1,668 +1,100 @@
-# 星河契约 · 个人打卡站点（RUN-form）
+# 星夜花园 v2 · RUN-form
 
-一个挂在 GitHub Pages 上的极简个人打卡（check-in）网站。
+> 一个静谧暗夜养成打卡站：养一颗光球精灵、种一片花园，**连续 7 天全勤**换一张野餐篮美食券。
+> 线上地址（不变）：<https://chenliguan42057.github.io/RUN-form/>
 
-**v4「星河契约」** 换了一套说法：**立一个计划 = 与星辰缔结一份契约**。
-每个计划都是夜空里的一颗星——坚持得越久它越亮，荒废了就慢慢黯下去。
-管理页不再是一张「表格 + 技术设置」的后台，而是**一块可以亲手安排自己星空的画布**：
-星点按 id 哈希落位、按连续天数分四档亮度、按创建先后连成星座；
-悬停看星语，点击进入编辑，删除叫作 **「熄灭此星」**。
-同步 Token、备份恢复这类技术开关全部收进右上角 **✦ 设置抽屉**，不再占据主视野。
-
-前作 **v3「星河自律」** 已把白底卡片换成 **深色星河玻璃拟态**：梵高星空油画打底，
-毛玻璃卡片浮在上面，三层视差星点缓缓流动。v4 在它之上**只做加法**，
-v3 的全部数据、键名与函数原样保留。副标题仍然是那句 **不按惯例 · RUN-form**。
-
-纯静态实现：**HTML / CSS / JS，无构建步骤、无框架、无依赖**，
-所有数据默认存在浏览器本地（localStorage）。
-
-**v6「星河契约」** 在 v4 之上只做加法：新增 14 个零依赖 IIFE 模块——
-打卡仪式、段位体系、专注星盘、当夜星图海报、天色主题、情绪速记与光谱、回望、互鉴、
-白噪音、环境光、星幕、快捷键与契约引导。能力门控模块在不支持的设备上整块隐藏，
-所有增强默认克制，详见下方「v6 特性与模块索引」。
-
-> 线上地址：https://chenliguan42057.github.io/RUN-form/
+v2 把原来的「星河契约」彻底重写成了「阳光彩虹花园」：
+不再只有冷冰冰的打卡列表，而是让每一次坚持都长成一朵花，
+让每一次断签都有后果——精灵会难过、生病、沉睡、消散，最后离开。
 
 ---
+
+## 三个核心玩法
+
+| 玩法 | 规则 |
+|---|---|
+| 🐣 **养精灵** | 5 阶段进化（蛋 → 幼年 → 成长 → 成熟 → 进化体），4 项状态值：饱食 / 心情 / 能量 / 亲密。相处越久形态越高。 |
+| 🌷 **种花园** | 一个每日任务 = 一朵花。花有 5 个阶段：种子 → 发芽 → 花苞 → 初开 → 盛开。任务没完成，那朵花就不开。 |
+| 🧺 **野餐篮** | 连续全勤 7 / 14 / 30 天，分别领到 50 / 100 / 200 元「自我承诺券」。**只有持券才能放心吃放纵餐**，券可叠加。没有券还去吃 = 偷吃，扣双倍积分 + 精灵心情大降。 |
+
+### 断签会发生什么
+
+| 断签天数 | 精灵 | 花园 | 页面 |
+|---|---|---|---|
+| 0 天 | 难过 | 局部枯萎 | 变暗 |
+| 2 天 | 生病 | 30% 枯萎 | 阴天 |
+| 3 天 | 沉睡 | 60% 枯萎 | 灰度 |
+| 5 天 | 快要消失 | 90% 枯萎 | 落叶 |
+| 7 天 | 离开，留下一封信 | 全枯 | 黑白 |
+
+**离开不等于清零**：可以用「回忆之花」召回，亲密度保留，形态回退到成长期。
+
+> 连续天数按 **核心任务全勤日** 判定。非核心任务没完成不算断签，但对应的那朵花不会开。
+
+---
+
+## 技术选型：零框架、零构建、零依赖
+
+- 纯静态站，GitHub Pages 源 = `main` 分支根目录，**没有 npm、没有打包步骤**
+- 经典 `<script src>` 顺序加载 + 单一命名空间 `window.RF` + 每个文件 IIFE
+  （不用 ESM，是为了 `file://` 双击也能直接打开）
+- 图形素材全部是 CSS 渐变 + inline SVG + emoji，**零图片请求**
+- 音效用 WebAudio 的 `OscillatorNode` 现场合成，**没有音频文件**
+- 周报海报用纯前端 `canvas` 手绘，不引入 html2canvas
 
 ## 目录结构
 
 ```
-RUN-form/
-├── index.html                      # 观星台：天象旁白 / 四枚天象指标 / 今晚的星轨 / 星点热力 / 星语
-├── manage.html                     # 星图编辑器：星空画布 / 缔结新星 / 编辑与熄灭 / ✦ 设置抽屉
-├── stats.html                      # 星历：我的星途（星轨）/ 星座亮度条 / 月历星图 / 徽章 / 频率分布
-├── styles.css                      # 深色星河玻璃拟态样式（6 套主题配色 + v3/v4/v6 全部动效，v6 关键帧均包在 no-preference 媒体查询内）
-├── store.js                        # 共享数据与计算层（三个页面都要最先加载它）
-├── components.js                   # 共享 UI 生成器（ui* 纯函数，依赖 store.js）
-├── app.js                          # 仪表盘逻辑（含 v6 首页装配层）
-├── app2.js                         # 管理页逻辑（含 v6 设置装配层）
-├── app3.js                         # 统计页逻辑（含 v6 星历装配层）
-├── sensory.js / theme.js / rank.js / mood.js / celebrate.js   # v6 基础模块（首页同步加载）
-├── focus.js / onboarding.js / review.js / shortcuts.js        # v6 交互模块（按需 loadModule 注入）
-├── ambient.js / whitenoise.js / screensaver.js                # v6 能力门控模块（不支持则整块隐藏）
-├── friendmap.js / poster.js                                     # v6 互鉴 / 海报模块（按需注入）
-├── data/
-│   ├── plans.json                  # 同步上来的计划（钉钉提醒读这个文件）
-│   ├── checkins.json               # 同步上来的打卡台账
-│   ├── quotes.json                 # 每日心法大语录库（首页星语 + 09:10 / 21:10 钉钉推送共用）
-│   ├── heartbeat.json              # 心跳保活时间戳（keepalive 工作流独占写，仅用于重置 60 天停用计时）
-│   └── reminder-state.json         # 提醒送达状态（提醒工作流独占写，前端只读）
-├── assets/
-│   └── bg-vangogh-ocean.webp       # 背景油画
-├── .github/
-│   └── workflows/
-│       ├── dingtalk-reminder.yml   # 每 15 分钟检查一次，推送到期计划的钉钉提醒
-│       ├── daily-quote.yml         # 每天北京时间 09:10 推送一句「当日心法」
-│       ├── daily-quote-evening.yml # 每天北京时间 21:10 推送一句「晚安心法」（半库偏移，早≠晚）
-│       ├── add-quotes.yml          # 网页端添加语录：追加写回 data/quotes.json
-│       ├── keepalive.yml           # 心跳保活：每 ~20 天提交一次，防 60 天停用定时任务
-│       └── sync.yml                # 接收同步事件并写入 data/plans.json + data/checkins.json
-└── README.md
+index.html            花园主页   —— 天空场景 + 精灵 + 花园 + 今日任务 + 倒计时
+manage.html           花园管理   —— 任务表 / 设置 / 推送配置（三 Tab）
+shop.html             花园市集   —— 野餐篮库存 + 放纵餐登记 + 积分商店
+stats.html            花园档案   —— 环形进度 + 热力图 + 段位 + 成就墙 + 周报海报
+
+styles/
+  tokens.css          设计令牌：六主色、6 个时段天空色、圆角/阴影/毛玻璃/字体栈
+  base.css            reset、排版、滚动条、.u-* 工具类、导航与页脚
+  scene.css           天空/云/彩虹/山丘/草地/蝴蝶/花瓣/萤火虫/天气滤镜
+  pet.css             精灵 5 形态与全部情绪动画
+  garden.css          花朵 5 阶段、枯萎、装饰、季节皮肤
+  ui.css              卡片 / 按钮 / 状态条 / 弹窗 / toast / 徽章 / 任务卡
+  shop.css            市集栅格、藤编篮、管理页表单
+
+js/
+  core/               util.js（时间/转义/随机/节流/音效）· bus.js（事件总线）· storage.js
+  data/               schema.js（结构定义与迁移）· store.js（CRUD + 墓碑 + 同步）
+  systems/            pet · garden · coupon · punishment · rpg · countdown · habits
+  ui/                 scene · fx · components
+  pages/              home · manage · shop · stats
 ```
 
-### 脚本加载顺序（不可颠倒）
+**分层依赖只能自上而下**：`core → data → systems → ui → pages`。
+`systems/` 下七个模块**互不直接调用**，需要联动一律走 `RF.bus` 事件。
 
-```
-store.js  →  components.js  →  app.js / app2.js / app3.js
-```
+## 数据存在哪
 
-- `store.js`：常量、数据读写、日期与统计计算。**不碰任何页面独有的 DOM**。
-- `components.js`：`ui*` 系列纯函数，输入数据、输出 HTML 字符串（或挂载行为）。
-  所有用户数据在函数内部就已经过 `escapeHtml`，调用方直接塞 `innerHTML` 是安全的。
-- `appN.js`：页面脚本，取 DOM、组织流程、绑事件。只有这一层才允许声明
-  `const $ = (id) => document.getElementById(id)`。
+- 主要数据在本机 `localStorage`，键名统一前缀 `runform_`（沿用 v1，老用户数据不丢）
+- 勾选同步后会经 Cloudflare Worker 派发到仓库的 `data/*.json`
+- ⚠️ **仓库是公开的**：同步上去的感想文字任何人都能看到。管理页提供了「不同步 note」开关。
+- GitHub PAT 只存在于三处：Cloudflare Worker 密钥、GitHub Secrets、你自己的浏览器 localStorage。
+  前端代码里只有一个非机密的 `SYNC_APP_KEY`，用来挡陌生人滥用。
 
-### v6 模块加载策略（首页 45KB 预算）
+## 推送
 
-首页同步加载 `store.js → components.js →` 5 个核心 v6 模块（`sensory / theme / rank / mood / celebrate`），
-其余 6 个模块（`onboarding / focus / whitenoise / shortcuts / ambient / screensaver`）由页面脚本里的
-`loadModule(name)` 按需注入 `<script async>`（Promise 缓存，失败仅 `resolve(false)` 不阻断主流程）。
-星历页与管理页通过各自装配层调用 `ui*` 渲染器挂载板块。
+默认只开 **4 个槽**：07:00 / 21:30 / 22:30 / 00:00（12:00 和 18:00 默认关）。
 
----
+GitHub Actions 的 `cron` 高峰期会迟到 15~45 分钟，所以做法是：
+固定 `*/10` 的高频 cron 全天跑，真正「发不发」由脚本按
+**目标时间 − 提前量** 判定，没到点就精确补睡，超过窗口就干脆不发（宁可少推，也不深夜补一条「早安」）。
 
-## 页面分工（v4）
-
-### 🔭 观星台 `index.html`
-
-- **天象旁白**：`skyPoem(now)` 按 24 小时给出不同的一句，配当天日期与每日一句梵高书信。
-- **下一个提醒**卡片：环形倒计时 + 计划图标 / 名称 / 说明，每 30 秒刷新一次。
-- **四枚天象指标**（`.stat-grid--astro`）：
-  | 指标 | 含义 |
-  | ---- | ---- |
-  | 星数 | 当前启用的计划数 |
-  | 待点亮 | 今日到期但还没完成的数量 |
-  | 彗尾 | 当前连续天数，尾巴长度随 `streak/21` 增长 |
-  | 月相 | 近 30 天完成率，画成一枚真实的月相 SVG |
-- **今晚的星轨**（`.rail`）：今天所有到期计划按时间排成一条轨道，
-  逐项标出 `is-done / is-passed / is-due / is-now`。
-- **星点热力**：最近 12 周的打卡热力图，格子从 `sh-l0` 到 `sh-l4` 五档。
-- **星语**：底部一张 quote 卡片。
-- 「标记完成」按钮默认显示，可在设置抽屉里关掉（见下方「界面偏好」）。
-
-### ✦ 星图编辑器 `manage.html`
-
-主视野**只有星空**：
-
-- **星空画布**（`.sky-map`）：每个计划一颗星，位置由 `planStarPosition(id)` 哈希派生并做
-  确定性松弛避免重叠；亮度由 `planBrightness(plan)` 按「连续天数 65% + 近 30 天完成率 35%」
-  算出 0~4 级；按 `createdAt` 先后连成**星座连线**。
-- **悬停**弹出星语 tooltip（频率 / 时间 / 下次触发 / 完成率 / 说明，全部经 `escapeHtml`）。
-- **点击**任一颗星打开编辑弹窗；弹窗底部的危险区按钮叫 **「熄灭此星」**。
-- **「+ 缔结新星」**按钮新建计划；一颗星都没有时显示空状态引导语。
-- **右上角 ✦ 按钮**打开**设置抽屉**，v3 那两张技术卡片（**同步到 GitHub 仓库**、
-  **备份与恢复**）连同界面偏好、全部台账都收在这里。
-  DOM 里 `#pat-input` / `#sync-btn` / `#toast` 的 id 与行为完全没变，只是换了个位置。
-
-### 🗓 星历 `stats.html`
-
-- **里程碑欢呼**（`milestoneCheer()`）：达成阶段性成就时在顶部给一句。
-- **我的星途**：每个启用计划一条**竖向星轨**，21 天封顶，按当前 / 最佳连续降序，最多 12 条。
-- **星座亮度条**：各计划近 30 天完成率画成亮度条。
-- **月历星图**：可前后翻月，有活动的日子亮成一颗星；已是本月时「下一月 / 回到本月」自动禁用。
-- 全年热力星图（可按数据来源筛选）、打卡趋势折线、里程碑徽章墙、频率分布。
-- **这一页只读**，唯一会写入的是「星图数据来源」这个筛选偏好。
-
----
-
-## v4 星图计算层（`store.js` 追加部分）
-
-这些都是**纯函数 + 确定性**的：同样的输入永远给同样的星空，刷新页面星星不会乱跳。
-
-| 函数 | 作用 |
-| ---- | ---- |
-| `skyPoem(date)` | 按小时取一句天象旁白，24 小时都有兜底 |
-| `planStarPosition(id)` | 用 djb2 哈希把 id 映射成 `{x, y}` 百分比，落在安全边距内 |
-| `planBrightness(plan)` | 算亮度：`min(streak/21,1)*0.65 + rate*0.35`，按 `STAR_LEVEL_STEPS` 分 0~4 级 |
-| `buildStarMap(plans)` | 星点 + 星座连线 + `{total, lit, dim}` 统计，含确定性松弛去重叠 |
-| `buildMonthGrid(y, m)` | 月历网格，整周对齐、**周一在第一列**、带当月活动统计 |
-| `milestoneCheer()` | 里程碑文案，无数据时也给鼓励，不会返回空 |
-| `loadMindsetQuotes()` | 异步取 `data/quotes.json` 大语录库，带缓存；失败回落 `VAN_GOGH_QUOTES` |
-| `dayOfYear(dateStr)` | `'YYYY-MM-DD'` → 一年中的第几天（1 月 1 日 = 1）。**星语已不走这里**，保留备用 |
-| `daysSinceEpoch(dateStr, epoch)` | 距 `MINDSET_EPOCH`（2026-01-01 = 0）的总天数，与钉钉工作流口径一致 |
-| `dailyMindsetQuote(dateStr, quotes, offset?)` | 按 `(days + offset) % len` 取心法（欧几里得取模）；`offset` 缺省 0 = 早上那句，传 `len/2` = 晚上那句，详见「每日心法语录」一节 |
-
-几个关键常量：`STAR_MARGIN_X = 9`、`STAR_MARGIN_Y = 13`、`STAR_ASPECT = 1.7`、
-`STAR_MIN_GAP = 17`、`STAR_RELAX_ITERATIONS = 30`、`STAR_LEVEL_STEPS = [0.8, 0.56, 0.32, 0.02]`。
-
-> ⚠️ **停用的计划恒为 0 级**（星星熄灭）；启用中的计划**至少 1 级微光**，
-> 不会因为一次没打卡就完全看不见。
-
----
-
-## v6 特性与模块索引（星河契约）
-
-v6 在 v4 之上**只做加法**：新增 14 个零依赖 IIFE 模块，暴露 `window.*` 命名空间，
-由三页装配层接线。所有增强默认克制，能力门控模块在不支持的设备上**整块隐藏 DOM**。
-
-| 模块 | 命名空间 | 特性 | 层级 |
-| ---- | -------- | ---- | ---- |
-| `sensory.js` | `Sensory` | 静默总线：`setSilent()` 一票否决白噪音与所有音效；用户手势处 `unlock()` 解锁音频 | 基础 |
-| `theme.js` | `Theme` | 天色四态 `origin / midnight / polar / dawn`，`startAutoWatch()` 自动跟随系统 | C2 |
-| `rank.js` | `Rank` | 段位体系；`score = totalActive×1 + bestStreak×2 + currentStreak×1`；**隐藏顶阶=「长明」** | B2/C1 |
-| `mood.js` | `Mood` | 情绪速记，**5 维**（full/glow/calm/low/edge），写 localStorage 旁路表，与 checkin 7 字段分离 | C3 |
-| `celebrate.js` | `Celebrate` | 打卡仪式：点亮星点绽放 + 段位晋升欢呼；里程碑（`pendingMilestone`）补放 | B1/D1 |
-| `focus.js` | `Focus` | 专注星盘，计时结束 `convertToStar()` 转为一次打卡 | B3 |
-| `onboarding.js` | `Onboarding` | 契约引导浮层，首访 `open()`，注入 `#overlay-root` | 引导 |
-| `review.js` | `Review` | 回望：按周/月生成星途回望文案与短诗 | C5 |
-| `shortcuts.js` | `Shortcuts` | 全局快捷键（打卡/拉取/专注/主题/静默/逃逸），`init()` 注入 | D4 |
-| `ambient.js` | `Ambient` | 环境光：`isSupported()` 不支持则整块隐藏；`autoStart()` 自动点亮 | D(门控) |
-| `whitenoise.js` | `WhiteNoise` | 白噪音场景切换，`SCENES`；受 `Sensory` 静默总线一票否决 | D2 |
-| `screensaver.js` | `Screensaver` | 星幕屏保：`isSupported()` 门控，`armIdle()` 空闲触发 | D(门控) |
-| `friendmap.js` | `FriendMap` | 互鉴：编码 `SR1-XXXX-XXXX-XX` 比对星途，不传任何个人数据 | D3 |
-| `poster.js` | `Poster` | 当夜星图海报：`build()` / `download()`；**无二维码**，右下角署名「RUN-form 星河契约」 | B4 |
-
-### v6 硬约束（自测已验证）
-
-- **隐藏顶阶 = 「长明」**：`Rank` 表末位不展示，UI 不暴露「满级」概念。
-- **段位分公式**：`score = totalActive×1 + bestStreak×2 + currentStreak×1`。
-- **海报无二维码**，右下角固定署名「RUN-form 星河契约」。
-- **层级 z-index**：toast ≥ 100，浮层（overlay / 引导 / 星幕）= 80，互不遮挡。
-- **移动端下拉手势**：仅 PWA `standalone` 模式下接管，浏览器普通访问不拦截原生下拉刷新。
-- **情绪 5 维**：`full / glow / calm / low / edge`，维度固定不可增减。
-- **P2 默认关闭 + 能力门控**：白噪音、环境光、星幕等增强默认不开启；`Ambient.isSupported()` /
-  `Screensaver.isSupported()` 返回 false 时对应 DOM 卡 `hidden`，不渲染控制项。
-- **降级**：所有 v6 `@keyframes` 与 `animation` 声明包在 `@media (prefers-reduced-motion: no-preference)` 内；
-  `renderHeader()`（app.js）字节级不变，段位走独立 `#rank-slot`。
-
----
-
-## 数据模型
-
-### 计划 Plan
-
-```jsonc
-{
-  "id": "…",              // 自动生成的唯一 id
-  "name": "跑步",          // 计划名，也是打卡记录里显示的内容
-  "freq": "daily",        // daily | weekly | monthly
-  "time": "08:00",        // 提醒时间（北京时间，HH:MM）
-  "day": 0,               // weekly：星期号 0~6（周一 = 0）；monthly：每月第几日 1~31；daily：忽略
-  "enabled": true,        // 关掉后既不出现在今日时间轴，也不会推提醒
-
-  // ↓ v3 新增，老数据读取时会自动补全，不需要手工迁移
-  "icon": "🏃",           // emoji 图标，缺省 🌟
-  "color": "gold",        // 主题配色 key，缺省时按 id 哈希自动分配一种
-  "desc": "五公里，慢一点也没关系",  // 一句话说明，可为空
-  "createdAt": 1754460000000        // 创建时间戳，用于计算连续天数的起点
-}
-```
-
-六套配色：`gold` 星夜金 / `blue` 深海蓝 / `teal` 松石绿 / `violet` 暮色紫 /
-`rose` 玫瑰粉 / `amber` 麦田橙。
-
-### 打卡记录 Checkin
-
-```jsonc
-{
-  "id": "…",
-  "planId": "…",          // 关联的计划 id，历史迁移数据可能是 null
-  "planName": "跑步",
-  "ts": 1754460000000,
-  "note": "",
-
-  // ↓ v3 新增
-  "planIcon": "🏃",       // 打卡当时的图标快照（计划改图标后老记录不受影响）
-  "source": "manual"      // manual = 手动确认；auto = 提醒送达
-}
-```
-
-> ⚠️ **本地台账里只应该有 `manual`**。`auto` 那一半活动来自
-> `data/reminder-state.json`，由 `buildActivityMap()` 单独并进来。
-> 所以 `buildActivityMap` 里有一行防御：`if (c.source === "auto") return;`——
-> 本地台账中若混入 `auto` 记录会被直接跳过，否则同一次提醒会被算两遍。
-> **写测试造数据时要注意这一点**，本地 checkin 全写 `manual` 才符合真实情况。
-
-### 提醒送达状态 `data/reminder-state.json`
-
-```jsonc
-{
-  "sent": {
-    "2026-08-06|abc123": { "name": "跑步", "time": "08:00", "icon": "🏃", "ts": 1754460000000 }
-  },
-  "updatedAt": 1754460000000
-}
-```
-
-- key 固定是 **`YYYY-MM-DD|planId`**，这是幂等去重的唯一依据。
-- **由 `dingtalk-reminder.yml` 独占写入，前端只读**（`fetch` 同源相对路径，带
-  `?t=` 时间戳绕缓存）。拉取失败（`file://` 预览 / 首次部署文件还不存在 / 断网）
-  时会静默降级读 localStorage 缓存，页面右上角出现一个「离线」小胶囊，不会报错。
-- ⚠️ `sync.yml` **绝对不能**把这个文件一起提交，否则会用旧快照覆盖提醒工作流刚写的记录，
-  导致同一天重复轰炸 + 热力图上的青色格子凭空消失。工作流里已经写死了只 add 另外两个文件。
-
-### 界面偏好 Prefs（localStorage 键 `runform_prefs`）
-
-| 字段 | 默认值 | 说明 |
-| ---- | ------ | ---- |
-| `showManualCheckin` | `true` | 仪表盘是否显示「标记完成」按钮。关掉后只展示提醒送达情况，台账仍然保留 |
-| `heatmapSource` | `"all"` | 星图数据来源：`all` 全部 / `auto` 仅提醒送达 / `manual` 仅手动确认 |
-| `reduceMotion` | `false` | 手动关闭全部动效 |
-
-热力图配色区分来源：**青色 = 提醒送达（auto）**，**金色 = 手动确认（manual）**。
-
----
-
-## ⚠️ 两套星期口径（改代码前必读）
-
-| 场景 | 口径 | 说明 |
-| ---- | ---- | ---- |
-| `plan.day`、`data/plans.json`、Python `datetime.weekday()` | **周一 = 0** | 全仓库的存储口径 |
-| JavaScript 原生 `Date.getDay()` | **周日 = 0** | 只在浏览器运行时出现 |
-
-所以前端判断「某计划今天是否到期」必须换算：
-
-```js
-const jsDow = ((Number(plan.day) || 0) + 1) % 7;   // 存储口径 → JS 口径
-return d.getDay() === jsDow;
-```
-
-Python 侧则可以直接比较，**不要**画蛇添足加换算：
-
-```python
-if freq == "weekly":
-    return now.weekday() == day        # 两边都是周一 = 0
-```
-
-`manage.html` 里 `#plan-weekday` 的 `option value` 已按存储口径（周一 = 0）写死，
-表单读到什么就存什么，中间不做任何转换。
-
----
-
-## 钉钉提醒（v3 有较大改动）
-
-### 调度策略
-
-- cron 从 v2 的 **每小时整点**（`0 * * * *`）改成 **每 15 分钟**（`*/15 * * * *`）。
-- 脚本比对**完整的 `HH:MM`**，不再只看小时——`08:00` 和 `08:30` 现在是两次独立的提醒。
-- **补偿窗口 `WINDOW_MIN = 30`**：计划时间过去 30 分钟以内都算「本次该推」。
-  GitHub 的 schedule 本身不保证准时（高峰期延迟 5~20 分钟是常态），这个窗口就是用来兜住抖动的。
-- **幂等去重**：每次发送成功后，把 `YYYY-MM-DD|planId` 写进 `data/reminder-state.json`。
-  窗口内的后续调度看到 key 已存在就跳过，所以「窗口 30 分钟 + 每 15 分钟跑一次」
-  也只会推一条，不会重复。
-- **批量阈值 2**：同一次判定出 2 个及以上到期计划时合并成一条消息，避免刷屏。
-- 发送失败**不写状态文件**，下一次调度只要还在窗口内就会自动重试。
-- `concurrency` 分组保证同一时刻只有一个提醒任务在跑。
-
-### 手动触发与演练
-
-**Actions → 钉钉打卡提醒 → Run workflow**，有两个输入：
-
-| 输入 | 作用 |
-| ---- | ---- |
-| `dry_run` | 演练模式：只在日志里打印判定结果和消息全文，**不发钉钉、不写状态文件** |
-| `force_plan_id` | 强制推送指定计划 id，**跳过时间判定与去重**，用来验证 webhook 是否通 |
-
-改文案、调格式时先用 `dry_run` 跑一遍看日志，确认无误再真发。
-
-### 每日一句是同一句
-
-钉钉消息里的鼓励语和网页首页显示的是**同一句**——两边都用
-`hashString(当天日期)` 取模选句，Python 侧完整复刻了 `store.js` 的 djb2 哈希。
-
-> ⚠️ `dingtalk-reminder.yml` 里的 `QUOTES` 必须与 `store.js` 里的 `VAN_GOGH_QUOTES`
-> 一字不差。改文案要**两边同时改**，否则同一天在网页和钉钉里会看到不同的句子。
-
-### ⚠️ 改完计划一定要点一次「同步到仓库」
-
-提醒脚本**读的是仓库里的 `data/plans.json`，不是你浏览器里的 localStorage**。所以：
-
-> **新增 / 修改 / 熄灭星星后，去管理页 ✦ 设置抽屉里点一次「同步到仓库」**
->（填了 Token 的话会自动同步），等 Actions 跑完把 `data/plans.json` 更新掉，提醒才会生效。
-
-没同步过的计划，调度器根本看不见。
-
----
-
-## 每日心法语录
-
-和「打卡提醒」是两条完全独立的链路：提醒盯的是**你的计划到点没有**，
-心法语录盯的是**今天这句话**。前者读 `data/plans.json`，后者读 `data/quotes.json`。
-
-### 它每天做什么
-
-- **每天北京时间 09:10**，`.github/workflows/daily-quote.yml` 自动从
-  `data/quotes.json` 里取一句，推送到钉钉。
-- cron 写的是 `"10 1 * * *"`——GitHub 用 UTC，北京时间 = UTC+8，所以 09:10 要往前推 8 小时。
-- 选句规则是**按日期轮播**，不是随机：
-
-  ```
-  days  = 今天距 2026-01-01 的总天数（2026-01-01 记为 0）
-  quote = quotes[days % quotes.length]
-  ```
-
-  所以同一天不管跑几次、刷新几次，永远是同一句；第二天自动换下一句。
-  目前库里 1102 条，**要走满 1102 天（约 3 年）才回到原点，跨年也不重复，整库都会被轮到**。
-
-> ⚠️ **起点之前的日期天数为负，两端取模语义不同。**
-> Python 的 `%` 对负数返回非负余数（`-1 % 1102 == 1101`），
-> 而 JS 的 `%` 返回负余数（`-1 % 1102 === -1`，会取到 `quotes[-1]` → `undefined`）。
-> 所以 `store.js` 里用的是欧几里得取模 `((n % len) + len) % len` 来对齐 Python。
-> **这行别删**，否则 2026-01-01 之前的日期两端会选出不同的句子。
-
-### 首页「星语」读的是同一份库
-
-`index.html` 的「星语」也走 `data/quotes.json`，用的是同一个
-`days % len` 公式（`store.js` 的 `daysSinceEpoch()` / `dailyMindsetQuote()`），
-所以**网页上看到的那句，就是当天早上钉钉推给你的那句**。
-
-渲染分两步，是为了避免加载期间那块地方是空的：
-
-1. 同步先渲染一句梵高语录兜底（署名 `— 梵高`）；
-2. `loadMindsetQuotes()` 异步取回大库后，用「当日心法」覆盖（署名 `— RUN-form 心法`）。
-
-`quotes.json` 拉不到（离线 / 文件损坏 / 空数组）时会静默回落到梵高语录，
-首页不会白屏；钉钉侧同样有内置的 5 条兜底小库，**工作流不会因为语录文件出问题而变红**。
-
-> ⚠️ 两边的天数口径必须一字不差：
-> Python 侧是 `(today - date(2026, 1, 1)).days`，
-> JS 侧是 `store.js` 的 `daysSinceEpoch()`（用 `Date.UTC` 做减法绕开夏令时）。
-> 起点常量两边也要对齐：`MINDSET_EPOCH`（JS 是字符串 `"2026-01-01"`，Python 是 `date(2026,1,1)`）。
-> 改任何一边都要同步改另一边，否则同一天会看到两句不同的话。
-
-### 每晚心法（21:10 的第二条推送）
-
-除了早上那条，**每天北京时间 21:10** 还会再推一条「晚安心法」，
-走的是 `.github/workflows/daily-quote-evening.yml`，cron `"10 13 * * *"`（UTC 13:10）。
-文案是夜里收尾的口吻：回顾今天、给自己一句定心的话，然后早点睡。
-
-**早上 09:10 那条完全没动**——两个工作流是彼此独立的文件，
-`concurrency.group` 也分成了 `daily-quote` 和 `daily-quote-evening`，互不排队、互不取消。
-
-选句用的是**同一份 `quotes.json`、同一个 `days`**，只是加了个「半库偏移」：
-
-```
-早上：index = days % len
-晚上：index = (days + len // 2) % len
-```
-
-偏移半个库，是为了保证**同一天早上和晚上不会是同一句**（只要 `len >= 2`，`len // 2` 就不为 0），
-同时晚上这条依旧是全库轮播——走满 `len` 天回到原点，一条都不会漏。
-
-JS 侧对应的是 `dailyMindsetQuote(dateStr, quotes, offset)` 的第三个参数：
-
-```js
-dailyMindsetQuote(dateKey(new Date()), quotes)                          // 早上那句（offset 省略 = 0）
-dailyMindsetQuote(dateKey(new Date()), quotes, Math.floor(len / 2))     // 晚上那句
-```
-
-> ⚠️ `offset` 是**可选**参数，省略或传 `0` 时行为与加它之前一模一样。
-> `app.js` 首页「星语」调用的就是不带 `offset` 的版本，所以**页面上显示的永远是早上那句**。
-> 想让首页也跟着变成晚上那句，得自己判断时间再传 `Math.floor(quotes.length / 2)`——目前没这么做。
-
-手动验证：**Actions → 每日晚安心法推送 → Run workflow**，勾上 `dry_run`，
-日志里会同时打印晚上的 `index` 和早上的 `index`，一眼就能看出两句不一样。
-
-和早上那条一样，这个工作流**只读不写**：不碰 `reminder-state.json`，不做任何 `git commit`，
-`permissions` 只申请 `contents: read`。
-
-### 怎么扩充语录
-
-直接往 `data/quotes.json` 这个数组里加字符串就行，不用改任何代码：
-
-```json
-[
-  "我的归属不是眼前的苟且，我想试试不一样的人生。",
-  "我不将就，因为将就一次，就会将就一辈子。",
-  "在这里加你自己的新句子。"
-]
-```
-
-加完提交推送即可，下一次 09:10 / 21:10 两条推送都会用新库选句，首页刷新后也会同步生效。
-**早晚两条读的是同一个数组**，所以只要往数组里加字符串，两条一起变多，不用改任何代码。
-
-**条数越多，一轮走完需要的天数越久，也就越久不重样**——整库都在轮播里，
-加一条就多一天不重复。注意加句子会**改变末尾之后所有日期的对应关系**
-（因为 `len` 变了，取模结果整体平移），这不影响两端一致性（两边读的是同一个文件）。
-
-**想指定某天显示哪句**，直接改对应索引位置上的那条：
-
-```
-索引 = 该日期距 2026-01-01 的天数
-```
-
-例如 2026-01-01 是索引 `0`，2026-08-06 是索引 `217`，2026-08-07 是索引 `218`。
-
-### 网页端添加语录（方式二，推荐）
-
-不用碰 JSON 文件——打开管理页 → 右上角 **✦ 设置** → **✍️ 扩充语录库**，每行贴一句，
-下方实时显示「将新增 N 条」，点 **添加到语录库** 即可：
-
-- 背后触发 `repository_dispatch`（事件类型 `add-quotes`），由 `add-quotes.yml` 用 `GITHUB_TOKEN`
-  把新句子**追加到 `data/quotes.json` 末尾**并推送；前端从不直接写仓库文件。
-- 与库里重复的句子自动跳过；含 `<` `>` `&` `"` 的行会被丢弃（防注入）。
-- 提交后约 1 分钟 GitHub Pages 重新发布生效；首页「星语」与次日 09:10 / 21:10 两条钉钉推送都会用新库。
-- 注意：追加到末尾会让 `len` 变化，导致当天及之后每天的对应句整体平移，
-  **可能与当日已经发出的钉钉推送（读的是旧文件）不同句**——这是扩库的固有代价，属正常。
-
-### 心跳保活（防定时任务被停用）
-
-GitHub 会对「60 天无仓库活动」的仓库**自动停用全部 `on.schedule` 工作流**，且是静默的——
-届时早晚钉钉推送与打卡提醒会直接不再触发。本项目三个定时工作流都可能在长期无提交时停摆，
-因此新增 `keepalive.yml`：
-
-- 每月 1 日 / 21 日（北京 12:00）自动向 `main` 提交一个 `data/heartbeat.json` 时间戳，
-  最长间隔 20 天，远小于 60 天阈值，持续重置「无活动」计时。
-- 它**只写 `heartbeat.json`**，绝不碰 `reminder-state.json` / `plans.json` / `checkins.json` / `quotes.json`。
-- 上线后可手动 **Actions → 心跳保活 → Run workflow** 立即验证一次；若怀疑被停用，手动跑一次即可复活全部定时任务。
-
-### 手动验证
-
-**Actions → 每日心法语录 → Run workflow**，勾上 `dry_run` 就只在日志里打印
-当天选中的语录和消息全文，**不会真的发钉钉**。改文案时先这么跑一遍。
-
-这个工作流**只读不写**——不碰 `reminder-state.json`，不做任何 `git commit`，
-`permissions` 也只申请了 `contents: read`。
-
----
-
-## 数据备份与恢复
-
-管理页 → 右上角 **✦ 设置** → **💾 备份与恢复**（v4 起从主视野移进抽屉，功能未变）：
-
-- **导出**：下载一个 `runform-backup-YYYY-MM-DD.json`，内含 **计划 + 台账 + 偏好**，
-  **不含 Personal Access Token**，可以放心保存或转移到别的浏览器。
-- **导入**：
-  - 勾选「合并导入」（默认）→ 按 `id` 合并，同 id 以文件里的为准，本地独有的保留。
-  - 不勾选 → **整体覆盖**本地数据，会先弹确认框。
-- 导入完成后偏好、表单、列表、台账会立刻刷新，并触发一次自动同步。
-
----
-
-## 无障碍与动效
-
-- 固定深色主题，正文与背景对比度满足 **WCAG AA**；不提供浅色模式（星河底图在浅色下不成立）。
-- **全部动效都包在 `@media (prefers-reduced-motion: no-preference)` 里**，这是硬约定。
-  v3 的星点闪烁、卡片进场、数字滚动、进度环填充、光晕呼吸；v4 新增的
-  `star-breathe` / `star-beam-flare` / `link-flow` / `modal-in` / `drawer-in` /
-  `comet-glow` / `rail-halo` / `mg-pop` / `track-rise` / `track-float` /
-  `bright-grow` / `quote-glow` / `cheer-glow` 一律遵守。
-  v6 新增的 `fx-pulse`（打卡绽放）/ `fx-banner`（段位晋升横幅）/ `oath-in`（契约引导进场）/
-  `ss-in`（星幕淡入）同样包在 `no-preference` 内，且基础类只保留非动效属性，降级时不残留透明态。
-- 每条 v4 关键帧的 `100%` 都是**稳定的静止态**，所以动画即使被掐断，元素也停在正确的最终样子上。
-- 系统开启「减少动态效果」时自动降级：`animation-duration: 0.001ms !important`，
-  JS 侧的 `PREFERS_REDUCED` 常量同步生效，数字直接跳终值、进度环直接画满。
-  星轨、亮度条、月历星点、弹窗与抽屉另有一组
-  `opacity:1 / transform:none / animation:none` 的静态兜底，不会停在「动画还没开始」的透明状态。
-- 也可以在设置抽屉里手动勾「减少动效」，等价于给 `<html>` 加 `.no-motion` 类。
-  **系统设置优先**：系统关了动效，页面上怎么点都不会有动画。
-- 星点、星轨、月历格子都是真实的 `<button>` / 带 `aria-label` 的元素，可键盘聚焦；
-  纯装饰的 SVG 一律 `aria-hidden="true"`。
-
----
+管理页会读 `data/push-state.json` 里记录的送达时间，算出
+「最近 10 条平均迟到 X 分钟 → 建议提前量 Y」，一键应用。
 
 ## 本地预览
 
-任选一种方式：
+直接双击 `index.html` 即可（没用 ESM，`file://` 也能跑）。
+想用 Service Worker 相关能力，起个本地服务器：
 
-1. **直接打开**：双击 `index.html`。
-   ⚠️ `file://` 下浏览器会拦截 `fetch`，所以读不到 `data/reminder-state.json`，
-   页面会显示「离线」胶囊、热力图上只有手动打卡的金色格子。这属于预期降级，功能不受影响。
-2. **起本地服务**（推荐）：
-   ```bash
-   python -m http.server 8000
-   # 然后浏览器访问 http://localhost:8000
-   ```
-
----
-
-## GitHub Pages 设置
-
-1. 进入仓库 `chenliguan42057/RUN-form`。
-2. 打开 **Settings → Pages**。
-3. **Source** 选择 **Deploy from a branch** → 分支选 **`main`**，目录选 **`/ (root)`**。
-4. 保存后稍等一两分钟，访问 `https://chenliguan42057.github.io/RUN-form/`。
-
----
-
-## 设置 Secrets（用于钉钉提醒）
-
-钉钉机器人需要「加签」方式，因此要配置两个 Secret：
-
-1. 进入仓库 **Settings → Secrets and variables → Actions → New repository secret**。
-2. 新建 `DINGTALK_WEBHOOK`，值填**完整的钉钉机器人 webhook URL**
-   （形如 `https://oapi.dingtalk.com/robot/send?access_token=xxxx`）。
-3. 再新建 `DINGTALK_SECRET`，值填钉钉机器人的**加签密钥**（以 `SEC` 开头的一串字符）。
-
-> ⚠️ 这两个值只存在 GitHub Secrets 里，绝不会写进任何仓库文件。
-
----
-
-## 同步到仓库的使用说明
-
-1. 进入 **管理页 → 右上角 ✦ 设置 → 同步到 GitHub 仓库**，粘贴你的 **Personal Access Token**。
-   （v4 起这张卡片收进了设置抽屉，`#pat-input` / `#sync-btn` 的 id 与行为都没变。）
-2. 填好之后就不用管了——**打卡 / 删除 / 清空 / 增删改计划都会自动同步**；
-   也可以随时点 **同步到仓库** 手动触发一次。
-3. 一次同步会把 **计划（plans）和台账（checkins）一起推上去**，
-   分别覆盖写入 `data/plans.json` 与 `data/checkins.json`。
-
-### Token 权限要求 / 401 排查
-
-如果看到 **「同步失败（401）」**，按下面三条挨个确认：
-
-| 检查项 | 说明 |
-| ------ | ---- |
-| ① Token 是否过期 | GitHub 的 PAT 有有效期，过期后必须重新生成 |
-| ② Classic Token | 必须勾选 **`repo`** 这个大权限（只勾子项不够） |
-| ③ Fine-grained Token | 需要在 **Account / Repository permissions** 里授予 **`Contents: read & write`**、**`Metadata: read`**，以及 **`Administration: read`**（⚠️ `repository_dispatch` 同步事件由 Administration 权限控制——只给 Contents 能推代码却推不了同步，会报 401）；并把本仓库加进 **Repository access** |
-
-出现 **403** 通常是权限不足或触发太频繁，检查权限后稍等一会儿再试。
-
-### Token 的存放（安全说明）
-
-- Token 保存在**本机浏览器的 localStorage**（键名 `runform_pat`），刷新页面、关闭标签页都不会丢，
-  下次打开自动回填，不用每次重新粘贴。
-- 它**只会通过 `Authorization` 请求头发给 GitHub**，不会写进任何文件、不会被提交、不会出现在日志里，
-  也不会发给任何第三方。**导出的备份 JSON 里同样不含 Token。**
-- ⚠️ 正因为是持久保存，**请勿在公共 / 共享电脑上保存 Token**。想清除的话，在浏览器开发者工具的
-  Application → Local Storage 里删掉 `runform_pat` 即可。
-
-### 自动同步
-
-- 触发时机：打卡、删除记录、清空全部、新增 / 修改 / 删除计划、切换计划启用状态、导入备份。
-- **防抖 800ms**：连续操作（比如一口气删好几条）只会在最后一次操作后合并成一次请求，不会刷屏。
-- 自动同步是静默的：成功不打扰你，**只有失败才会弹错误 toast**。手动点按钮则成功 / 失败都有提示。
-- 没填 Token 时自动同步会直接跳过，不会报错——纯本地用也完全没问题
-  （但那样钉钉提醒就没有数据可读了）。
-
-### 同步链路与覆盖语义
-
-- 前端向 `https://api.github.com/repos/chenliguan42057/RUN-form/dispatches`
-  发送 `repository_dispatch` 事件（`event_type: sync-checkins`，
-  `client_payload` 里同时带 `plans` 与 `checkins`）。
-- 仓库里的 `sync.yml` 收到事件后，把两份数据**全量覆盖写入** `data/plans.json`
-  和 `data/checkins.json`，然后自动提交。**不会碰 `data/reminder-state.json`。**
-- ⚠️ **浏览器端是唯一真源，远端是它的镜像**：
-  在页面上删掉一条，同步后仓库里那条也会消失；点「清空全部记录」，仓库里的
-  `data/checkins.json` 会被写成空数组 `[]`。这不是 bug，是刻意设计——
-  否则删除和清空永远同步不出去。**需要留底就先用管理页的「导出备份 JSON」。**
-- 换句话说：**远端不做累加**。如果你在两台设备上各自打卡，后同步的那台会覆盖掉先同步的内容。
-- 两个工作流可能同时推送（提醒写 `reminder-state.json`、同步写另外两个文件），
-  推送失败时都会 `git pull --rebase --autostash` 后重试一次；因为改的是不同文件，rebase 不会冲突。
-
----
-
-## 数据迁移说明
-
-### v1 → v2
-
-v1 的打卡记录形如 `{id, ts, content}`，没有计划概念。v2 首次加载时会自动迁移：
-
-- `planId` 置为 `null`（表示不属于任何计划）
-- `planName` 取原来的 `content`，为空则记为 `历史记录`
-- 台账的 localStorage 键名仍是 `runform_checkins`，**老数据不会丢**
-
-### v2 → v3
-
-**不需要做任何事，直接刷新页面即可。** v3 的迁移是「读时补全」，不改写已有存储：
-
-- localStorage 键名全部沿用：`runform_plans` / `runform_checkins` / `runform_pat`。
-- 计划缺 `icon` 补 `🌟`，缺 `color` 按 `id` 哈希分配，缺 `desc` 补空串，缺 `createdAt` 补一个兜底时间。
-- 台账缺 `planIcon` 时按 `planId` 反查当前计划的图标，缺 `source` 一律视为 `manual`
-  （v2 只有手动打卡，这个默认值是准确的）。
-- 新增的 `runform_prefs` 首次读取时直接用默认值，不存在也不报错。
-
-### v3 → v4
-
-**零迁移。刷新即可。**
-
-- **数据模型一个字段都没改**，localStorage 键名全部沿用：
-  `runform_plans` / `runform_checkins` / `runform_pat` / `runform_prefs` / `runform_reminder_cache`。
-- `data/plans.json`、`data/checkins.json`、`data/reminder-state.json` 的结构没动，
-  `.github/workflows/` 一行没改，钉钉提醒与同步链路完全照旧。
-- v4 是**纯加法**：`store.js` 追加了 `skyPoem` / `planStarPosition` / `planBrightness` /
-  `buildStarMap` / `buildMonthGrid` / `milestoneCheer`，`components.js` 追加了 14 个 `ui*`
-  渲染器，v3 的老函数一个没删，仍可被调用。
-- 唯一的**行为变化**是位置：管理页的「同步到 GitHub 仓库」「备份与恢复」两张卡片
-  从主视野搬进了 ✦ 设置抽屉。id 与逻辑不变，用惯 v3 的人只需要多点一下齿轮。
-
-### v4 → v6
-
-**零强制迁移。刷新即可。**
-
-- 数据模型字段一个都没改：localStorage 键名 `runform_plans` / `runform_checkins` / `runform_pat` /
-  `runform_prefs` / `runform_reminder_cache` 全部沿用；`checkin` 仍是 7 字段
-  （`id / planId / planName / ts / note / planIcon / source`），情绪速记写入**独立的旁路表**，不污染台账。
-- v6 新增模块全部为 IIFE，暴露 `window.*`；三页脚本末尾 `try { bootV6(); } catch{}` 装配，
-  单模块加载失败仅 `resolve(false)`，不影响已有 v4 功能。
-- `data/*.json` 与 `.github/workflows/` 一行未改，钉钉提醒与同步链路照旧。
-- 默认克制：白噪音 / 环境光 / 星幕 / 互鉴 / 快捷键等增强默认关闭，能力门控模块在不支持的设备上整块隐藏，
-  老用户首次打开外观与 v4 几乎一致，可逐步在各自面板开启。
-
----
-
-## 后续可扩展点
-
-- **多人**：接入 GitHub 登录或表单填昵称，区分不同用户。
-- **导出 CSV / iCal**：目前只导出 JSON。
-- **提醒渠道**：除钉钉外，再加邮件 / 企业微信 / Telegram。
-- **计划分组**：给计划加标签，按标签筛选统计。
-- **补卡**：允许为过去某一天补一条记录（当前只能打「现在」）。
-
----
-
-## 许可证
-
-个人项目，随意使用与修改。
+```bash
+python3 -m http.server 8000
+# 然后打开 http://localhost:8000/
+```
