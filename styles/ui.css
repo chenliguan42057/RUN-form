@@ -12,7 +12,7 @@
   background: var(--g-glass-bg-strong);
   border: 1px solid var(--g-glass-border);
   border-radius: var(--g-radius-lg);
-  box-shadow: var(--g-shadow-md);
+  box-shadow: var(--g-shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   padding: var(--g-gap-md);
   -webkit-backdrop-filter: blur(var(--g-glass-blur));
   backdrop-filter: blur(var(--g-glass-blur));
@@ -97,7 +97,7 @@
   border-color: var(--g-glass-border);
 }
 .u-btn--ghost:hover,
-.g-btn--ghost:hover { background: var(--g-white); }
+.g-btn--ghost:hover { background: var(--g-glass-bg-strong); }
 
 .u-btn--sm,
 .g-btn--sm { padding: 6px 14px; font-size: var(--g-fs-sm); }
@@ -350,9 +350,10 @@
 .g-modal {
   width: 100%;
   max-width: 420px;
-  background: var(--g-white);
+  background: var(--g-glass-bg-strong);
+  border: 1px solid var(--g-glass-border);
   border-radius: var(--g-radius-lg);
-  box-shadow: var(--g-shadow-lg);
+  box-shadow: var(--g-shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   padding: var(--g-gap-lg);
   transform: translateY(8px) scale(0.98);
   transition: transform var(--g-dur-mid) var(--g-ease);
