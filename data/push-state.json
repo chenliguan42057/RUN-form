@@ -55,6 +55,13 @@
       "lateSec": 1,
       "variant": 1,
       "manual": false
+    },
+    "2026-09-17|morning": {
+      "sentAt": 1789599601223,
+      "targetAt": 1789599600000,
+      "lateSec": 1,
+      "variant": 0,
+      "manual": false
     }
   },
   "history": [
@@ -105,6 +112,12 @@
       "slot": "night",
       "lateSec": 1,
       "sentAt": 1789392601530
+    },
+    {
+      "dayKey": "2026-09-17",
+      "slot": "morning",
+      "lateSec": 1,
+      "sentAt": 1789599601223
     }
   ],
   "settle": {},
@@ -116,10 +129,10 @@
     "brokenStreak": 0
   },
   "calibration": {
-    "avgLateMin": 3.69,
-    "suggestedLead": 34,
-    "samples": 8,
-    "updatedAt": 1789392601530
+    "avgLateMin": 3.28,
+    "suggestedLead": 33,
+    "samples": 9,
+    "updatedAt": 1789599601223
   },
-  "updatedAt": 1789392601530
+  "updatedAt": 1789599601223
 }
